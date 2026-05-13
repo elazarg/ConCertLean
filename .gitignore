@@ -1,0 +1,19 @@
+.lake/
+
+# Lean/Lake build artifacts, in case they are generated outside .lake.
+*.olean
+*.ilean
+*.ir
+*.c
+*.trace
+*.hash
+*.server
+*.private
+
+# Local editor and OS files.
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
