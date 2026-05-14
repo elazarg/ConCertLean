@@ -24,19 +24,52 @@ def lookup_i {A : Type} : Env A → Nat → Option A
   | (_, a) :: ρ', i =>
     if i == 0 then some a else lookup_i ρ' (i - 1)
 
--- TODO: port notations `ρ # (k)` and `ρ # [ k ~> v ]`.
+infixl:65 " # " => lookup
+
+syntax:65 term:66 " # " "[" term " ~> " term "]" : term
+macro_rules
+  | `($ρ:term # [ $k:term ~> $v:term ]) => `(($k, $v) :: $ρ)
 
 def remove_by_key {A : Type} (key : String) : Env A → Env A
   | [] => []
   | (nm, a) :: ρ' =>
     if nm == key then remove_by_key key ρ' else (nm, a) :: remove_by_key key ρ'
 
--- Lemma lookup_i_length is a {e | lookup_i ρ n = Some e}-typed sig.
--- Stated as an existence axiom here.
-axiom lookup_i_length {A : Type} (ρ : Env A) (n : Nat) :
-  (n < ρ.length) → ∃ e, lookup_i ρ n = some e
+-- The Rocq lemma is a `{e | lookup_i ρ n = Some e}`-typed witness.
+-- Lean states and proves the corresponding existential.
+theorem lookup_i_length {A : Type} (ρ : Env A) (n : Nat) :
+    (n < ρ.length) → ∃ e, lookup_i ρ n = some e := by
+  induction ρ generalizing n with
+  | nil => intro h; simp at h
+  | cons hd tl ih =>
+    intro h
+    cases n with
+    | zero =>
+      obtain ⟨nm, a⟩ := hd
+      exact ⟨a, by simp [lookup_i]⟩
+    | succ k =>
+      obtain ⟨nm, a⟩ := hd
+      have hk : k < tl.length := by
+        simp [List.length] at h; omega
+      obtain ⟨e, he⟩ := ih k hk
+      refine ⟨e, ?_⟩
+      simp [lookup_i, he]
 
-axiom lookup_i_length_false {A : Type} (ρ : Env A) (n : Nat) :
-  ¬ (n < ρ.length) → lookup_i ρ n = none
+theorem lookup_i_length_false {A : Type} (ρ : Env A) (n : Nat) :
+    ¬ (n < ρ.length) → lookup_i ρ n = none := by
+  induction ρ generalizing n with
+  | nil => intro _; cases n <;> rfl
+  | cons hd tl ih =>
+    intro h
+    cases n with
+    | zero =>
+      exfalso
+      apply h
+      simp [List.length]
+    | succ k =>
+      obtain ⟨nm, a⟩ := hd
+      have hk : ¬ k < tl.length := by
+        intro hk; apply h; simp [List.length]; omega
+      simp [lookup_i, ih k hk]
 
 end ConCert.Utils.Env

@@ -3,7 +3,7 @@
    Note: the Coq file is named `BlockchainDFS.v` but its `Section BreadthFirst`
    defines BFS-related predicates (`BFSPermutations`, `BFSChainTrace`).
    DFS-related predicates live in `BlockchainBFS.v` (similar misnomer).
-   We mirror the Coq layout. -/
+   This module mirrors the Coq layout. -/
 
 import ConCert.Execution.BlockchainBase
 import ConCert.Execution.ChainedList

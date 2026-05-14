@@ -10,6 +10,7 @@ namespace ConCert.Examples.Escrow
 
 open ConCert.Execution.BlockchainBase
 open ConCert.Execution.SerializableBase
+open ConCert.Execution.SerializableInstances
 open ConCert.Execution.ResultMonad
 
 variable [Base : ChainBase]
@@ -40,34 +41,47 @@ inductive Msg where
   | confirm_item_received
   | withdraw
 
-/-- Setup encodes as a single Address. -/
-private def setup_serialize (s : @Setup Base) : SerializedValue := serialize s.setup_buyer
+/-- Setup encodes using Rocq `Derive Ser`'s constructor-tag wire shape. -/
+private def setup_serialize (s : @Setup Base) : SerializedValue :=
+  serialize_constructor1 0 s.setup_buyer
 private def setup_deserialize (v : SerializedValue) : Option (@Setup Base) :=
-  (deserialize v : Option Base.Address).map (fun a => { setup_buyer := a })
-axiom setup_round_trip :
-  ∀ (s : @Setup Base), setup_deserialize (setup_serialize s) = some s
+  (deserialize_constructor1 0 v : Option Base.Address).map (fun a => { setup_buyer := a })
+theorem setup_round_trip :
+  ∀ (s : @Setup Base), setup_deserialize (setup_serialize s) = some s := by
+  intro s
+  cases s
+  simp [setup_deserialize, setup_serialize, deserialize_serialize_constructor1]
 
 instance Setup_serializable : Serializable (@Setup Base) where
   serialize := setup_serialize
   deserialize := setup_deserialize
   deserialize_serialize := setup_round_trip
 
-/-- NextStep encodes as a tag in {0,1,2,3}. -/
+/-- NextStep encodes using Rocq `Derive Ser`'s constructor-tag wire shape. -/
 private def nextstep_serialize : NextStep → SerializedValue
-  | .buyer_commit  => serialize (0 : Nat)
-  | .buyer_confirm => serialize (1 : Nat)
-  | .withdrawals   => serialize (2 : Nat)
-  | .no_next_step  => serialize (3 : Nat)
+  | .buyer_commit  => serialize_constructor0 0
+  | .buyer_confirm => serialize_constructor0 1
+  | .withdrawals   => serialize_constructor0 2
+  | .no_next_step  => serialize_constructor0 3
 private def nextstep_deserialize (v : SerializedValue) : Option NextStep :=
-  (deserialize v : Option Nat) >>= fun n =>
-    match n with
-    | 0 => some .buyer_commit
-    | 1 => some .buyer_confirm
-    | 2 => some .withdrawals
-    | 3 => some .no_next_step
-    | _ => none
-axiom nextstep_round_trip :
-  ∀ (s : NextStep), nextstep_deserialize (nextstep_serialize s) = some s
+  match deserialize_constructor0 0 v with
+  | some _ => some .buyer_commit
+  | none =>
+    match deserialize_constructor0 1 v with
+    | some _ => some .buyer_confirm
+    | none =>
+      match deserialize_constructor0 2 v with
+      | some _ => some .withdrawals
+      | none =>
+        match deserialize_constructor0 3 v with
+        | some _ => some .no_next_step
+        | none => none
+omit Base in
+theorem nextstep_round_trip :
+  ∀ (s : NextStep), nextstep_deserialize (nextstep_serialize s) = some s := by
+  intro s
+  cases s <;> simp [nextstep_deserialize, nextstep_serialize,
+    deserialize_constructor0_serialize_constructor0]
 
 instance NextStep_serializable : Serializable NextStep where
   serialize := nextstep_serialize
@@ -76,39 +90,49 @@ instance NextStep_serializable : Serializable NextStep where
 
 /-- State encodes as a 6-tuple. -/
 private def state_serialize (s : @State Base) : SerializedValue :=
-  serialize (((s.last_action, s.next_step), (s.seller, s.buyer)),
-             (s.seller_withdrawable, s.buyer_withdrawable))
+  serialize_constructor6 0 s.last_action s.next_step s.seller s.buyer
+    s.seller_withdrawable s.buyer_withdrawable
 
 private def state_deserialize (v : SerializedValue) : Option (@State Base) :=
-  (deserialize v :
-      Option (((Nat × NextStep) × (Base.Address × Base.Address)) × (Amount × Amount))).map
+  (deserialize_constructor6 0 v :
+      Option (Nat × NextStep × Base.Address × Base.Address × Amount × Amount)).map
     (fun p =>
-      { last_action := p.1.1.1, next_step := p.1.1.2,
-        seller := p.1.2.1, buyer := p.1.2.2,
-        seller_withdrawable := p.2.1, buyer_withdrawable := p.2.2 })
+      { last_action := p.1, next_step := p.2.1,
+        seller := p.2.2.1, buyer := p.2.2.2.1,
+        seller_withdrawable := p.2.2.2.2.1, buyer_withdrawable := p.2.2.2.2.2 })
 
-axiom state_round_trip :
-  ∀ (s : @State Base), state_deserialize (state_serialize s) = some s
+theorem state_round_trip :
+  ∀ (s : @State Base), state_deserialize (state_serialize s) = some s := by
+  intro s
+  cases s
+  simp [state_deserialize, state_serialize, deserialize_serialize_constructor6]
 
 instance State_serializable : Serializable (@State Base) where
   serialize := state_serialize
   deserialize := state_deserialize
   deserialize_serialize := state_round_trip
 
-/-- Msg encodes as a tag in {0,1,2}. -/
+/-- Msg encodes using Rocq `Derive Ser`'s constructor-tag wire shape. -/
 private def msg_serialize : Msg → SerializedValue
-  | .commit_money          => serialize (0 : Nat)
-  | .confirm_item_received => serialize (1 : Nat)
-  | .withdraw              => serialize (2 : Nat)
+  | .commit_money          => serialize_constructor0 0
+  | .confirm_item_received => serialize_constructor0 1
+  | .withdraw              => serialize_constructor0 2
 private def msg_deserialize (v : SerializedValue) : Option Msg :=
-  (deserialize v : Option Nat) >>= fun n =>
-    match n with
-    | 0 => some .commit_money
-    | 1 => some .confirm_item_received
-    | 2 => some .withdraw
-    | _ => none
-axiom msg_round_trip :
-  ∀ (m : Msg), msg_deserialize (msg_serialize m) = some m
+  match deserialize_constructor0 0 v with
+  | some _ => some .commit_money
+  | none =>
+    match deserialize_constructor0 1 v with
+    | some _ => some .confirm_item_received
+    | none =>
+      match deserialize_constructor0 2 v with
+      | some _ => some .withdraw
+      | none => none
+omit Base in
+theorem msg_round_trip :
+  ∀ (m : Msg), msg_deserialize (msg_serialize m) = some m := by
+  intro m
+  cases m <;> simp [msg_deserialize, msg_serialize,
+    deserialize_constructor0_serialize_constructor0]
 
 instance Msg_serializable : Serializable Msg where
   serialize := msg_serialize

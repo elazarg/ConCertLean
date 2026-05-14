@@ -1,6 +1,6 @@
 /- Port of execution/theories/ContractProperties.v
    The file is a long list of definitions and lemmas about non-recursive,
-   non-payable, payable contracts, etc. Lemmas are axiomatized. -/
+   non-payable, payable contracts, etc. -/
 
 import ConCert.Utils.Extras
 import ConCert.Execution.Blockchain
@@ -47,18 +47,72 @@ def NonRecursive
       | .act_call to_ _ _   => Base.address_eqb to_ caddr = false
       | _ => True)
 
-axiom nonrecursive_strong_nonrecursive :
+theorem nonrecursive_strong_nonrecursive :
   ∀ {Setup Msg State Error : Type}
     [Serializable Setup] [Serializable Msg]
     [Serializable State] [Serializable Error]
     (contract : Contract Setup Msg State Error),
-    NonRecursiveStrong contract → NonRecursive contract
+    NonRecursiveStrong contract → NonRecursive contract := by
+  intro Setup Msg State Error _ _ _ _ contract hstrong bstate caddr hr hdeployed
+  obtain ⟨trace⟩ := hr
+  let P : Nat → Nat → Nat → Base.Address → @DeploymentInfo Base Setup →
+      State → Amount → List (@ActionBody Base) →
+      List (@ContractCallInfo Base Msg) → List (@Tx Base) → Prop :=
+    fun _ _ _ caddr _ _ _ out_queue _ _ =>
+      out_queue.Forall (fun act_body =>
+        match act_body with
+        | .act_transfer to_ _ => Base.address_eqb to_ caddr = false
+        | .act_call to_ _ _   => Base.address_eqb to_ caddr = false
+        | _ => True)
+  have hcases : ContractInductionCases contract
+      (fun _ _ _ _ _ _ => True) (fun _ _ => True) (fun _ _ _ _ _ => True) P := by
+    refine
+      { establish_facts := ?_, add_block_case := ?_, init_case := ?_,
+        outgoing_act_case := ?_, nonrecursive_call_case := ?_,
+        recursive_call_case := ?_, permute_case := ?_ }
+    · intro _ _ step _ _
+      cases step with
+      | step_block => trivial
+      | step_action _ _ _ _ eval _ =>
+          cases eval with
+          | eval_transfer => trivial
+          | eval_deploy => trivial
+          | eval_call => intro _ _ _; trivial
+      | step_action_invalid => trivial
+      | step_permute => trivial
+    · intro old_h old_s old_f new_h new_s new_f caddr dep_info state balance
+        inc_calls out_txs facts ih _
+      exact ih
+    · intro chain ctx setup result facts hinit _
+      simp [P]
+    · intro height slot fin_height caddr dep_info cstate balance out_act out_acts
+        inc_calls prev_out_txs tx ih hfrom hamount hmatch _
+      simp only [P, List.forall_cons] at ih
+      exact ih.2
+    · intro chain ctx dep_info prev_state msg prev_out_queue prev_inc_calls
+        prev_out_txs new_state new_acts hnot_self facts ih hreceive _
+      simp only [P] at ih ⊢
+      exact (ConCert.Utils.Extras.Forall_app _ _ _).mp
+        ⟨hstrong chain ctx prev_state msg new_state new_acts hreceive, ih⟩
+    · intro chain ctx dep_info prev_state msg head prev_out_queue prev_inc_calls
+        prev_out_txs new_state new_acts hself facts ih haction hreceive _
+      simp only [P, List.forall_cons] at ih
+      simp only [P]
+      exact (ConCert.Utils.Extras.Forall_app _ _ _).mp
+        ⟨hstrong chain ctx prev_state msg new_state new_acts hreceive, ih.2⟩
+    · intro height slot fin_height caddr dep_info cstate balance out_queue
+        inc_calls out_txs out_queue' ih hperm _
+      simp only [P] at ih ⊢
+      exact ConCert.Utils.Extras.forall_respects_permutation _ _ _ hperm ih
+  obtain ⟨_, _, _, _, _, _, hP⟩ :=
+    contract_induction contract _ _ _ P hcases bstate caddr trace hdeployed
+  simpa [P] using hP
 
 /-- Non-recursive specialization of `contract_induction`: the
     recursive-call case is replaced by the `NonRecursive` hypothesis on
     the contract. Takes `NonRecursiveContractInductionCases`, which omits
     the `recursive_call_case` field. -/
-axiom nonrecursive_contract_induction :
+theorem nonrecursive_contract_induction :
   ∀ {Setup Msg State Error : Type}
     [Serializable Setup] [Serializable Msg]
     [Serializable State] [Serializable Error]
@@ -89,7 +143,75 @@ axiom nonrecursive_contract_induction :
         P bstate.chain_height bstate.current_slot bstate.finalized_height caddr
           dep cstate (bstate.env_account_balances caddr)
           (outgoing_acts bstate caddr) inc_calls
-          (outgoing_txs trace caddr)
+          (outgoing_txs trace caddr) := by
+  intro Setup Msg State Error _ _ _ _ contract AddBlockFacts DeployFacts CallFacts P
+    hnonrecursive hcases bstate caddr trace hdeployed
+  let CallFacts' :
+      Chain → @ContractCallContext Base → State → List (@ActionBody Base) →
+        Option (List (@ContractCallInfo Base Msg)) → Prop :=
+    fun chain ctx state out_queue inc_calls =>
+      CallFacts chain ctx state out_queue inc_calls ∧
+      ctx.ctx_from ≠ ctx.ctx_contract_address
+  have hcases' : ContractInductionCases contract AddBlockFacts DeployFacts CallFacts' P := by
+    refine
+      { establish_facts := ?_, add_block_case := hcases.add_block_case,
+        init_case := hcases.init_case,
+        outgoing_act_case := hcases.outgoing_act_case,
+        nonrecursive_call_case := ?_, recursive_call_case := ?_,
+        permute_case := hcases.permute_case }
+    · intro bstate_from bstate_to step from_reachable _
+      cases step with
+      | step_block header hqueue hvalid hfrom horigin henv =>
+          exact hcases.establish_facts
+            (.step_block header hqueue hvalid hfrom horigin henv) from_reachable .tag_facts
+      | step_action act acts new_acts hqueue eval hqueue' =>
+          cases eval with
+          | eval_transfer =>
+              trivial
+          | eval_deploy origin from_addr to_addr amount wc setup state
+              hamount hbalance haddr hnot_deployed hact hinit henv hnew_acts =>
+              exact hcases.establish_facts
+                (.step_action act acts new_acts hqueue
+                  (.eval_deploy origin from_addr to_addr amount wc setup state
+                    hamount hbalance haddr hnot_deployed hact hinit henv hnew_acts)
+                  hqueue')
+                from_reachable .tag_facts
+          | eval_call origin from_addr to_addr amount wc msg prev_state new_state
+              resp_acts amount_nonnegative amount_le hcontract hstate hact hreceive
+              hnew_acts henv =>
+              intro cstate hdeployed' hstate'
+              have hfacts :
+                  stepFactsPred contract AddBlockFacts DeployFacts CallFacts
+                    (.step_action act acts new_acts hqueue
+                      (.eval_call origin from_addr to_addr amount wc msg prev_state new_state
+                        resp_acts amount_nonnegative amount_le hcontract hstate hact hreceive
+                        hnew_acts henv)
+                      hqueue')
+                    from_reachable :=
+                hcases.establish_facts _ from_reachable .tag_facts
+              refine ⟨hfacts cstate hdeployed' hstate', ?_⟩
+              intro hself
+              have hfrom_eq : from_addr = to_addr := by
+                simpa using hself
+              have hout := hnonrecursive bstate_from to_addr
+                (trace_reachable from_reachable) hdeployed'
+              subst from_addr
+              cases msg <;>
+                simp [outgoing_acts, hqueue, hact, Address.address_eq_refl] at hout
+      | step_action_invalid =>
+          trivial
+      | step_permute =>
+          trivial
+    · intro chain ctx dep_info prev_state msg prev_out_queue prev_inc_calls
+        prev_out_txs new_state new_acts hnot_self facts ih hreceive tag
+      exact hcases.nonrecursive_call_case chain ctx dep_info prev_state msg
+        prev_out_queue prev_inc_calls prev_out_txs new_state new_acts
+        hnot_self facts.1 ih hreceive tag
+    · intro chain ctx dep_info prev_state msg head prev_out_queue prev_inc_calls
+        prev_out_txs new_state new_acts hself facts ih haction hreceive tag
+      exact False.elim (facts.2 hself)
+  exact contract_induction contract AddBlockFacts DeployFacts CallFacts' P hcases'
+    bstate caddr trace hdeployed
 
 /-! ### Non-payable / payable -/
 
@@ -122,14 +244,64 @@ def NonPayableWeak
 /-- Coq direction: strong ⇒ weak. NonPayable is the stronger property
     (also covers init); the weakening drops the init clause and restates
     receive's reject-when-nonzero as "if receive succeeds, amount = 0". -/
-axiom NonPayable_weaken :
-  ∀ {Setup Msg State Error : Type}
+theorem NonPayable_weaken
+    {Setup Msg State Error : Type}
     [Serializable Setup] [Serializable Msg]
     [Serializable State] [Serializable Error]
-    (contract : Contract Setup Msg State Error),
-    NonPayable contract → NonPayableWeak contract
+    (contract : Contract Setup Msg State Error)
+    (h : NonPayable contract) : NonPayableWeak contract := h.1
 
-axiom NonPayable_balance_zero :
+omit Base in
+private theorem sumZ_eq_zero_of_forall_zero {A : Type} (f : A → Int) :
+    ∀ xs : List A, xs.Forall (fun x => f x = 0) →
+      ConCert.Utils.Extras.sumZ f xs = 0
+  | [], _ => rfl
+  | _ :: xs, h => by
+      simp only [ConCert.Utils.Extras.sumZ]
+      simp only [List.forall_cons] at h
+      rw [h.1, sumZ_eq_zero_of_forall_zero f xs h.2]
+      simp
+
+private theorem trace_txs_amount_nonnegative :
+    ∀ {frm to_ : @ChainState Base} (trace : ChainTrace frm to_),
+      ∀ tx, tx ∈ trace_txs trace → tx.tx_amount ≥ 0 := by
+  intro frm to_ trace
+  induction trace with
+  | clnil =>
+      intro tx hmem
+      simp [trace_txs] at hmem
+  | snoc tail step ih =>
+      intro tx hmem
+      simp only [trace_txs, List.mem_append, step_txs] at hmem
+      cases step with
+      | step_block =>
+          rcases hmem with hfalse | htail
+          · cases hfalse
+          · exact ih tx htail
+      | step_action _ _ _ _ eval _ =>
+          simp only [List.mem_singleton] at hmem
+          rcases hmem with htx | htail
+          · subst htx
+            cases eval <;> simp [eval_tx] <;> assumption
+          · exact ih tx htail
+      | step_action_invalid =>
+          rcases hmem with hfalse | htail
+          · cases hfalse
+          · exact ih tx htail
+      | step_permute =>
+          rcases hmem with hfalse | htail
+          · cases hfalse
+          · exact ih tx htail
+
+private theorem outgoing_txs_amount_nonnegative
+    {frm to_ : @ChainState Base} (trace : ChainTrace frm to_)
+    (addr : Base.Address) :
+    ∀ tx, tx ∈ outgoing_txs trace addr → tx.tx_amount ≥ 0 := by
+  intro tx hmem
+  exact trace_txs_amount_nonnegative trace tx
+    (List.mem_of_mem_filter hmem)
+
+theorem NonPayable_balance_zero :
   ∀ {Setup Msg State Error : Type}
     [Serializable Setup] [Serializable Msg]
     [Serializable State] [Serializable Error]
@@ -140,7 +312,121 @@ axiom NonPayable_balance_zero :
       bstate.env_contracts caddr = some (contract_to_weak_contract contract) →
       ∃ cstate,
         @contract_state Base State _ bstate.toEnvironment caddr = some cstate ∧
-        bstate.env_account_balances caddr = 0
+        bstate.env_account_balances caddr = 0 := by
+  intro Setup Msg State Error _ _ _ _ contract hnonpayable bstate caddr hr hdeployed
+  obtain ⟨trace⟩ := hr
+  let P : Nat → Nat → Nat → Base.Address → @DeploymentInfo Base Setup →
+      State → Amount → List (@ActionBody Base) →
+      List (@ContractCallInfo Base Msg) → List (@Tx Base) → Prop :=
+    fun _ _ _ _ dep _ _ _ inc_calls _ =>
+      dep.deployment_amount = 0 ∧
+      inc_calls.Forall (fun call => call.call_amount = 0)
+  have hcases : ContractInductionCases contract
+      (fun _ _ _ _ _ _ => True)
+      (fun _ ctx => ctx.ctx_amount ≥ 0)
+      (fun _ ctx _ _ _ => ctx.ctx_amount ≥ 0)
+      P := by
+    refine
+      { establish_facts := ?_, add_block_case := ?_, init_case := ?_,
+        outgoing_act_case := ?_, nonrecursive_call_case := ?_,
+        recursive_call_case := ?_, permute_case := ?_ }
+    · intro _ _ step _ _
+      cases step with
+      | step_block => trivial
+      | step_action _ _ _ _ eval _ =>
+          cases eval with
+          | eval_transfer => trivial
+          | eval_deploy origin from_addr to_addr amount wc setup state
+              hamount _ _ _ _ hinit _ _ =>
+              exact hamount
+          | eval_call origin from_addr to_addr amount wc msg prev_state new_state
+              resp_acts hamount _ _ _ _ hreceive _ _ =>
+              intro _ _ _
+              exact hamount
+      | step_action_invalid => trivial
+      | step_permute => trivial
+    · intro _ _ _ _ _ _ _ _ _ _ _ _ _ ih _
+      exact ih
+    · intro chain ctx setup result hctx hinit _
+      have hzero : ctx.ctx_amount = 0 := by
+        by_contra hne
+        have hpos : ctx.ctx_amount > 0 := by
+          exact lt_of_le_of_ne hctx (Ne.symm hne)
+        have herr := hnonpayable.2 chain ctx setup hpos
+        rw [hinit] at herr
+        cases herr
+      exact ⟨hzero, by simp⟩
+    · intro _ _ _ _ _ _ _ _ _ _ _ _ ih _ _ _ _
+      exact ih
+    · intro chain ctx dep_info prev_state msg prev_out_queue prev_inc_calls
+        prev_out_txs new_state new_acts _ hctx ih hreceive _
+      have hzero : ctx.ctx_amount = 0 := by
+        by_contra hne
+        have hpos : ctx.ctx_amount > 0 := by
+          exact lt_of_le_of_ne hctx (Ne.symm hne)
+        have herr := hnonpayable.1 chain ctx prev_state msg hpos
+        rw [hreceive] at herr
+        cases herr
+      exact ⟨ih.1, by simp [hzero, ih.2]⟩
+    · intro chain ctx dep_info prev_state msg head prev_out_queue prev_inc_calls
+        prev_out_txs new_state new_acts _ hctx ih _ hreceive _
+      have hzero : ctx.ctx_amount = 0 := by
+        by_contra hne
+        have hpos : ctx.ctx_amount > 0 := by
+          exact lt_of_le_of_ne hctx (Ne.symm hne)
+        have herr := hnonpayable.1 chain ctx prev_state msg hpos
+        rw [hreceive] at herr
+        cases herr
+      exact ⟨ih.1, by simp [hzero, ih.2]⟩
+    · intro _ _ _ _ _ _ _ _ _ _ _ ih _ _
+      exact ih
+  obtain ⟨dep, cstate, inc_calls, hdep, hstate, hinc, hP⟩ :=
+    contract_induction contract _ _ _ P hcases bstate caddr trace hdeployed
+  refine ⟨cstate, hstate, ?_⟩
+  have hincoming_map :=
+    incoming_txs_contract caddr bstate trace Setup dep Msg inc_calls hdep hinc
+  have hincoming_sum :
+      ConCert.Utils.Extras.sumZ (fun tx : @Tx Base => tx.tx_amount)
+        (incoming_txs trace caddr) = 0 := by
+    rw [← ConCert.Utils.Extras.sumZ_map
+      (fun tx : @Tx Base => (tx.tx_from, tx.tx_to, tx.tx_amount))
+      (fun p : Base.Address × Base.Address × Amount => p.2.2)
+      (incoming_txs trace caddr)]
+    rw [hincoming_map, ConCert.Utils.Extras.sumZ_app]
+    rw [ConCert.Utils.Extras.sumZ_map]
+    have hcalls :
+        ConCert.Utils.Extras.sumZ
+          (fun call : @ContractCallInfo Base Msg => call.call_amount)
+          inc_calls = 0 :=
+      sumZ_eq_zero_of_forall_zero
+        (fun call : @ContractCallInfo Base Msg => call.call_amount)
+        inc_calls hP.2
+    simp [ConCert.Utils.Extras.sumZ, hcalls, hP.1]
+  have hcreated :
+      created_blocks trace caddr = [] :=
+    contract_no_created_blocks bstate caddr trace
+      (deployment_info_addr_format Setup trace caddr dep hdep)
+  have houtgoing_nonneg :
+      0 ≤ ConCert.Utils.Extras.sumZ (fun tx : @Tx Base => tx.tx_amount)
+        (outgoing_txs trace caddr) :=
+    ConCert.Utils.Extras.sumZ_nonnegative
+      (fun tx : @Tx Base => tx.tx_amount)
+      (outgoing_txs trace caddr)
+      (outgoing_txs_amount_nonnegative trace caddr)
+  have hbalance_nonneg : bstate.env_account_balances caddr ≥ 0 :=
+    account_balance_nonnegative bstate caddr ⟨trace⟩
+  rw [account_balance_trace bstate trace caddr] at hbalance_nonneg
+  rw [hincoming_sum, hcreated] at hbalance_nonneg
+  simp [ConCert.Utils.Extras.sumZ] at hbalance_nonneg
+  have houtgoing_zero :
+      ConCert.Utils.Extras.sumZ (fun tx : @Tx Base => tx.tx_amount)
+        (outgoing_txs trace caddr) = 0 := by
+    apply le_antisymm
+    · exact hbalance_nonneg
+    · exact houtgoing_nonneg
+  rw [account_balance_trace bstate trace caddr]
+  rw [hincoming_sum, hcreated, houtgoing_zero]
+  simp [ConCert.Utils.Extras.sumZ]
 
 def Payable
     {Setup Msg State Error : Type}
@@ -184,12 +470,12 @@ def LocalBalanceWeak
 
 /-- Coq direction: strong ⇒ weak. `LocalBalance` adds an `init` clause to
     `LocalBalanceWeak`; dropping that clause gives the weak version. -/
-axiom LocalBalance_weaken :
-  ∀ {Setup Msg State Error : Type}
+theorem LocalBalance_weaken
+    {Setup Msg State Error : Type}
     [Serializable Setup] [Serializable Msg]
     [Serializable State] [Serializable Error]
-    (contract : Contract Setup Msg State Error) (proj : State → Amount),
-    LocalBalance contract proj → LocalBalanceWeak contract proj
+    (contract : Contract Setup Msg State Error) (proj : State → Amount)
+    (h : LocalBalance contract proj) : LocalBalanceWeak contract proj := h.1
 
 def EmptyableStrong
     {Setup Msg State Error : Type}

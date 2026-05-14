@@ -32,31 +32,21 @@ def ContractAddrBase : Nat := AddrSize / 2
 abbrev LocalAddress := BoundedN AddrSize
 
 instance local_address_serializable : Serializable (BoundedN AddrSize) where
-  serialize b := ⟨.ser_int, (b.val : Int)⟩
-  deserialize v :=
-    match v with
-    | ⟨.ser_int, i⟩ =>
-      let i' : Int := i
-      if i' < 0 then none
-      else if h : i'.toNat < AddrSize then some ⟨i'.toNat, h⟩
-      else none
-    | _ => none
-  deserialize_serialize := by
-    intro b
-    show
-      (let i' : Int := (b.val : Int);
-       if i' < 0 then none
-       else if h : i'.toNat < AddrSize then some ⟨i'.toNat, h⟩
-       else none) = some b
-    have h_nonneg : ¬ ((b.val : Int) < 0) := by omega
-    have h_bound : ((b.val : Int).toNat) < AddrSize := by simp; exact b.lt
-    rw [if_neg h_nonneg, dif_pos h_bound]; congr
+  serialize := ConCert.Execution.SerializableInstances.BoundedN_equivalence.serialize
+  deserialize := ConCert.Execution.SerializableInstances.BoundedN_equivalence.deserialize
+  deserialize_serialize :=
+    ConCert.Execution.SerializableInstances.BoundedN_equivalence.deserialize_serialize
 
 def address_is_contract_local (a : LocalAddress AddrSize) : Bool :=
   ContractAddrBase AddrSize ≤ a.val
 
-axiom local_address_eqb_spec :
-  ∀ (a b : BoundedN AddrSize), BoundedN.eqb a b = true ↔ a = b
+theorem local_address_eqb_spec
+    (a b : BoundedN AddrSize) : BoundedN.eqb a b = true ↔ a = b := by
+  unfold BoundedN.eqb
+  rw [beq_iff_eq]
+  constructor
+  · exact BoundedN.to_N_inj
+  · intro h; rw [h]
 
 instance local_address_decEq : DecidableEq (BoundedN AddrSize) := fun a b =>
   if h : a.val = b.val then
@@ -73,8 +63,8 @@ instance local_address_decEq : DecidableEq (BoundedN AddrSize) := fun a b =>
   address_serializable := local_address_serializable AddrSize
   address_is_contract := address_is_contract_local AddrSize
 
-/-! Inside this file we work entirely under `LocalChainBase AddrSize`. The
-    following abbreviations shorten the noisy `@Foo (LocalChainBase AddrSize)`
+/-! This file works under `LocalChainBase AddrSize`. The following
+    abbreviations shorten the noisy `@Foo (LocalChainBase AddrSize)`
     spellings. -/
 abbrev LCEnv  := @Environment             (LocalChainBase AddrSize)
 abbrev LCChainSt := @ChainState           (LocalChainBase AddrSize)
@@ -261,6 +251,186 @@ def add_new_block (header : LCBH AddrSize) (lc : LocalChain AddrSize) : LocalCha
     lc_slot   := header.block_slot,
     lc_fin_height := header.block_finalized_height }
 
+theorem validate_header_valid
+    (header : LCBH AddrSize) (chain : Chain) :
+    validate_header AddrSize header chain = true →
+    @IsValidNextBlock (LocalChainBase AddrSize) header chain := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro h
+  unfold validate_header at h
+  simp only [Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at h
+  exact
+    { valid_height := h.1.1.1.1.1,
+      valid_slot := h.1.1.1.1.2,
+      valid_finalized_height := ⟨h.1.1.1.2, h.1.1.2⟩,
+      valid_creator := h.1.2,
+      valid_reward := h.2 }
+
+theorem validate_origin_neq_from_valid
+    (actions : List (LCAct AddrSize)) :
+    find_origin_neq_from AddrSize actions = none →
+    actions.Forall (@act_origin_is_eq_from (LocalChainBase AddrSize)) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro h
+  rw [List.forall_iff_forall_mem]
+  intro act hin
+  have hnone := (List.find?_eq_none).mp h act hin
+  simpa using hnone
+
+theorem validate_actions_valid
+    (actions : List (LCAct AddrSize)) :
+    find_invalid_root_action AddrSize actions = none →
+    actions.Forall (@act_is_from_account (LocalChainBase AddrSize)) := by
+  intro h
+  rw [List.forall_iff_forall_mem]
+  intro act hin
+  have hnone := (List.find?_eq_none).mp h act hin
+  simpa [act_is_from_account] using hnone
+
+theorem add_new_block_equiv
+    (header : LCBH AddrSize) (lc : LocalChain AddrSize) :
+    @EnvironmentEquiv (LocalChainBase AddrSize)
+      (lc_to_env AddrSize (add_new_block AddrSize header lc))
+      (@add_new_block_to_env (LocalChainBase AddrSize) header (lc_to_env AddrSize lc)) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  constructor
+  · rfl
+  · intro addr
+    by_cases h : addr = header.block_creator
+    · subst h
+      simp [lc_to_env, add_new_block, add_balance, BlockchainBase.add_new_block_to_env,
+        BlockchainBase.add_balance, FMap.find_partial_alter, Address.address_eq_refl]
+    · have h' : header.block_creator ≠ addr := fun heq => h heq.symm
+      simp [lc_to_env, add_new_block, add_balance, BlockchainBase.add_new_block_to_env,
+        BlockchainBase.add_balance, FMap.find_partial_alter_ne, h, h', Address.address_eq_ne]
+  · intro addr
+    rfl
+  · intro addr
+    rfl
+
+theorem transfer_balance_equiv
+    (frm to_ : LocalAddress AddrSize) (amount : Amount) (lc : LocalChain AddrSize) :
+    @EnvironmentEquiv (LocalChainBase AddrSize)
+      (lc_to_env AddrSize (transfer_balance AddrSize frm to_ amount lc))
+      (@BlockchainBase.transfer_balance (LocalChainBase AddrSize) frm to_ amount
+        (lc_to_env AddrSize lc)) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  constructor
+  · rfl
+  · intro addr
+    by_cases hfrm : addr = frm
+    · subst addr
+      by_cases hto : frm = to_
+      · subst to_
+        simp [lc_to_env, transfer_balance, add_balance, BlockchainBase.transfer_balance,
+          BlockchainBase.add_balance, FMap.find_partial_alter, Address.address_eq_refl]
+      · have hto' : to_ ≠ frm := fun h => hto h.symm
+        simp [lc_to_env, transfer_balance, add_balance, BlockchainBase.transfer_balance,
+          BlockchainBase.add_balance, FMap.find_partial_alter, FMap.find_partial_alter_ne,
+          hto, hto', Address.address_eq_refl, Address.address_eq_ne]
+    · by_cases hto : addr = to_
+      · subst addr
+        have hfrm' : frm ≠ to_ := fun h => hfrm h.symm
+        simp [lc_to_env, transfer_balance, add_balance, BlockchainBase.transfer_balance,
+          BlockchainBase.add_balance, FMap.find_partial_alter, FMap.find_partial_alter_ne,
+          hfrm, hfrm', Address.address_eq_refl, Address.address_eq_ne]
+      · have hfrm' : frm ≠ addr := fun h => hfrm h.symm
+        have hto' : to_ ≠ addr := fun h => hto h.symm
+        simp [lc_to_env, transfer_balance, add_balance, BlockchainBase.transfer_balance,
+          BlockchainBase.add_balance, FMap.find_partial_alter_ne,
+          hfrm, hfrm', hto, hto', Address.address_eq_ne]
+  · intro addr
+    rfl
+  · intro addr
+    rfl
+
+theorem add_contract_equiv
+    (addr : LocalAddress AddrSize) (wc : LCWC AddrSize) (lc : LocalChain AddrSize) :
+    @EnvironmentEquiv (LocalChainBase AddrSize)
+      (lc_to_env AddrSize (add_contract AddrSize addr wc lc))
+      (@BlockchainBase.add_contract (LocalChainBase AddrSize) addr wc
+        (lc_to_env AddrSize lc)) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  constructor
+  · rfl
+  · intro a
+    rfl
+  · intro a
+    by_cases h : a = addr
+    · subst a
+      simp [lc_to_env, add_contract, BlockchainBase.add_contract,
+        FMap.find_add, Address.address_eq_refl]
+    · have h' : addr ≠ a := fun heq => h heq.symm
+      simp [lc_to_env, add_contract, BlockchainBase.add_contract,
+        FMap.find_add_ne, h, h', Address.address_eq_ne]
+  · intro a
+    rfl
+
+theorem set_contract_state_equiv
+    (addr : LocalAddress AddrSize) (state : SerializedValue) (lc : LocalChain AddrSize) :
+    @EnvironmentEquiv (LocalChainBase AddrSize)
+      (lc_to_env AddrSize (set_contract_state AddrSize addr state lc))
+      (@BlockchainBase.set_contract_state (LocalChainBase AddrSize) addr state
+        (lc_to_env AddrSize lc)) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  constructor
+  · rfl
+  · intro a
+    rfl
+  · intro a
+    rfl
+  · intro a
+    by_cases h : a = addr
+    · subst a
+      simp [lc_to_env, set_contract_state, BlockchainBase.set_contract_state,
+        BlockchainBase.set_chain_contract_state, FMap.find_add, Address.address_eq_refl]
+    · have h' : addr ≠ a := fun heq => h heq.symm
+      simp [lc_to_env, set_contract_state, BlockchainBase.set_contract_state,
+        BlockchainBase.set_chain_contract_state, FMap.find_add_ne, h, h', Address.address_eq_ne]
+
+theorem set_contract_state_preserves_equiv
+    (addr : LocalAddress AddrSize) (state : SerializedValue)
+    (env₁ env₂ : LCEnv AddrSize) :
+    @EnvironmentEquiv (LocalChainBase AddrSize) env₁ env₂ →
+    @EnvironmentEquiv (LocalChainBase AddrSize)
+      (@BlockchainBase.set_contract_state (LocalChainBase AddrSize) addr state env₁)
+      (@BlockchainBase.set_contract_state (LocalChainBase AddrSize) addr state env₂) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro henv
+  exact
+    { chain_eq := henv.chain_eq,
+      account_balances_eq := fun a => henv.account_balances_eq a,
+      contracts_eq := fun a => henv.contracts_eq a,
+      contract_states_eq := by
+        intro a
+        by_cases h : a = addr
+        · subst a
+          simp [BlockchainBase.set_contract_state, BlockchainBase.set_chain_contract_state,
+            Address.address_eq_refl]
+        · simp [BlockchainBase.set_contract_state, BlockchainBase.set_chain_contract_state,
+            Address.address_eq_ne, h, henv.contract_states_eq a] }
+
+theorem add_contract_preserves_equiv
+    (addr : LocalAddress AddrSize) (wc : LCWC AddrSize)
+    (env₁ env₂ : LCEnv AddrSize) :
+    @EnvironmentEquiv (LocalChainBase AddrSize) env₁ env₂ →
+    @EnvironmentEquiv (LocalChainBase AddrSize)
+      (@BlockchainBase.add_contract (LocalChainBase AddrSize) addr wc env₁)
+      (@BlockchainBase.add_contract (LocalChainBase AddrSize) addr wc env₂) := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro henv
+  exact
+    { chain_eq := henv.chain_eq,
+      account_balances_eq := fun a => henv.account_balances_eq a,
+      contracts_eq := by
+        intro a
+        by_cases h : a = addr
+        · subst a
+          simp [BlockchainBase.add_contract, Address.address_eq_refl]
+        · simp [BlockchainBase.add_contract, Address.address_eq_ne, h,
+            henv.contracts_eq a],
+      contract_states_eq := fun a => henv.contract_states_eq a }
+
 def add_block_exec (depth_first : Bool) (lc : LocalChain AddrSize)
     (header : LCBH AddrSize) (actions : List (LCAct AddrSize)) :
     Result (LocalChain AddrSize) (LCABErr AddrSize) :=
@@ -277,13 +447,251 @@ def add_block_exec (depth_first : Bool) (lc : LocalChain AddrSize)
         let lc' := add_new_block AddrSize header lc
         execute_actions AddrSize 1000 actions lc' depth_first
 
+def send_or_call_step
+    (origin frm to_ : LocalAddress AddrSize) (amount : Amount)
+    (msg : Option SerializedValue) (act : LCAct AddrSize)
+    (lc_before lc_after : LocalChain AddrSize) (new_acts : List (LCAct AddrSize)) :
+    @Action.act_origin (LocalChainBase AddrSize) act = origin →
+    @Action.act_from (LocalChainBase AddrSize) act = frm →
+    @Action.act_body (LocalChainBase AddrSize) act =
+      (match msg with
+       | none => @ActionBody.act_transfer (LocalChainBase AddrSize) to_ amount
+       | some msg => @ActionBody.act_call (LocalChainBase AddrSize) to_ amount msg) →
+    send_or_call AddrSize origin frm to_ amount msg lc_before = .Ok (new_acts, lc_after) →
+    @ActionEvaluation (LocalChainBase AddrSize)
+      (lc_to_env AddrSize lc_before) act (lc_to_env AddrSize lc_after) new_acts := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro horigin hfrom hbody
+  have hact : act = @Action.mk (LocalChainBase AddrSize) origin frm
+      (match msg with
+        | none => @ActionBody.act_transfer (LocalChainBase AddrSize) to_ amount
+        | some msg => @ActionBody.act_call (LocalChainBase AddrSize) to_ amount msg) := by
+    cases act
+    simp at horigin hfrom hbody
+    subst_vars
+    cases msg <;> rfl
+  intro h
+  unfold send_or_call at h
+  by_cases hneg : amount < 0
+  · simp [hneg] at h
+  · simp [hneg] at h
+    by_cases hbal : amount > (lc_to_env AddrSize lc_before).env_account_balances frm
+    · simp [hbal] at h
+    · simp [hbal] at h
+      cases hcontract : FMap.find to_ lc_before.lc_contracts with
+      | none =>
+          simp [hcontract] at h
+          cases hfmt : (LocalChainBase AddrSize).address_is_contract to_ <;> simp [hfmt] at h
+          cases msg with
+          | none =>
+              simp at h
+              cases h
+              subst new_acts
+              subst lc_after
+              exact .eval_transfer origin frm to_ amount
+                (not_lt.mp hneg) (not_lt.mp hbal) hfmt hact
+                (transfer_balance_equiv AddrSize frm to_ amount lc_before)
+                rfl
+          | some msg =>
+              simp at h
+      | some wc =>
+          simp [hcontract] at h
+          cases hstate : (lc_to_env AddrSize lc_before).env_contract_states to_ with
+          | none =>
+              simp [hstate] at h
+          | some prev_state =>
+              simp [hstate] at h
+              let lc' := transfer_balance AddrSize frm to_ amount lc_before
+              cases hrecv :
+                  weak_error_to_error_receive AddrSize
+                    (wc_receive wc (lc_to_env AddrSize lc').toChain
+                      { ctx_origin := origin, ctx_from := frm,
+                        ctx_contract_address := to_,
+                        ctx_contract_balance := (lc_to_env AddrSize lc').env_account_balances to_,
+                        ctx_amount := amount }
+                      prev_state msg) with
+              | Err e =>
+                  simp [lc', hrecv] at h
+              | Ok pair =>
+                  rcases pair with ⟨new_state, resp_acts⟩
+                  simp [lc', hrecv] at h
+                  have hrecv_raw :
+                      wc_receive wc (lc_to_env AddrSize lc').toChain
+                        { ctx_origin := origin, ctx_from := frm,
+                          ctx_contract_address := to_,
+                          ctx_contract_balance := (lc_to_env AddrSize lc').env_account_balances to_,
+                          ctx_amount := amount }
+                        prev_state msg = .Ok (new_state, resp_acts) := by
+                    unfold weak_error_to_error_receive bind_error at hrecv
+                    cases hwc :
+                        wc_receive wc (lc_to_env AddrSize lc').toChain
+                          { ctx_origin := origin, ctx_from := frm,
+                            ctx_contract_address := to_,
+                            ctx_contract_balance := (lc_to_env AddrSize lc').env_account_balances to_,
+                            ctx_amount := amount }
+                          prev_state msg with
+                    | Ok pair =>
+                        cases pair
+                        simp [hwc] at hrecv
+                        cases hrecv
+                        subst_vars
+                        rfl
+                    | Err err =>
+                        simp [hwc] at hrecv
+                  rcases h with ⟨hacts, hlc⟩
+                  subst new_acts
+                  subst lc_after
+                  exact .eval_call origin frm to_ amount wc msg prev_state new_state resp_acts
+                    (not_lt.mp hneg) (not_lt.mp hbal) hcontract hstate
+                    (by cases act; cases msg <;> simp_all)
+                    hrecv_raw rfl
+                    (environment_equiv_trans _ _ _
+                      (set_contract_state_equiv AddrSize to_ new_state lc')
+                      (set_contract_state_preserves_equiv AddrSize to_ new_state
+                        (lc_to_env AddrSize lc')
+                        (@BlockchainBase.transfer_balance (LocalChainBase AddrSize)
+                          frm to_ amount (lc_to_env AddrSize lc_before))
+                        (transfer_balance_equiv AddrSize frm to_ amount lc_before)))
+
+theorem get_new_contract_addr_is_contract_addr
+    (lc : LocalChain AddrSize) (addr : LocalAddress AddrSize) :
+    get_new_contract_addr AddrSize lc = some addr →
+    (LocalChainBase AddrSize).address_is_contract addr = true := by
+  intro h
+  unfold get_new_contract_addr at h
+  have hval := BoundedN.of_N_some h
+  change addr.val = ContractAddrBase AddrSize + lc.lc_contracts.size at hval
+  unfold LocalChainBase address_is_contract_local
+  exact decide_eq_true (by rw [hval]; omega)
+
+def deploy_contract_step
+    (origin frm : LocalAddress AddrSize) (amount : Amount)
+    (wc : LCWC AddrSize) (setup : SerializedValue) (act : LCAct AddrSize)
+    (lc_before lc_after : LocalChain AddrSize) (new_acts : List (LCAct AddrSize)) :
+    @Action.act_origin (LocalChainBase AddrSize) act = origin →
+    @Action.act_from (LocalChainBase AddrSize) act = frm →
+    @Action.act_body (LocalChainBase AddrSize) act =
+      @ActionBody.act_deploy (LocalChainBase AddrSize) amount wc setup →
+    deploy_contract AddrSize origin frm amount wc setup lc_before = .Ok (new_acts, lc_after) →
+    @ActionEvaluation (LocalChainBase AddrSize)
+      (lc_to_env AddrSize lc_before) act (lc_to_env AddrSize lc_after) new_acts := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro horigin hfrom hbody
+  have hact : act = @Action.mk (LocalChainBase AddrSize) origin frm
+      (@ActionBody.act_deploy (LocalChainBase AddrSize) amount wc setup) := by
+    cases act
+    simp at horigin hfrom hbody
+    subst_vars
+    rfl
+  intro h
+  unfold deploy_contract at h
+  by_cases hneg : amount < 0
+  · simp [hneg] at h
+  · simp [hneg] at h
+    by_cases hbal : amount > (lc_to_env AddrSize lc_before).env_account_balances frm
+    · simp [hbal] at h
+    · simp [hbal] at h
+      cases haddr : get_new_contract_addr AddrSize lc_before with
+      | none =>
+          simp [haddr] at h
+      | some contract_addr =>
+          simp [haddr] at h
+          cases hcontract : FMap.find contract_addr lc_before.lc_contracts with
+          | some old =>
+              simp [hcontract] at h
+          | none =>
+              simp [hcontract] at h
+              let lc' := transfer_balance AddrSize frm contract_addr amount lc_before
+              cases hinit :
+                  weak_error_to_error_init AddrSize
+                    (wc_init wc (lc_to_env AddrSize lc').toChain
+                      { ctx_origin := origin, ctx_from := frm,
+                        ctx_contract_address := contract_addr,
+                        ctx_contract_balance := amount, ctx_amount := amount }
+                      setup) with
+              | Err e =>
+                  simp [lc', hinit] at h
+              | Ok state =>
+                  simp [lc', hinit] at h
+                  have hinit_raw :
+                      wc_init wc (lc_to_env AddrSize lc').toChain
+                        { ctx_origin := origin, ctx_from := frm,
+                          ctx_contract_address := contract_addr,
+                          ctx_contract_balance := amount, ctx_amount := amount }
+                        setup = .Ok state := by
+                    unfold weak_error_to_error_init bind_error at hinit
+                    cases hwc :
+                        wc_init wc (lc_to_env AddrSize lc').toChain
+                          { ctx_origin := origin, ctx_from := frm,
+                            ctx_contract_address := contract_addr,
+                            ctx_contract_balance := amount, ctx_amount := amount }
+                          setup with
+                    | Ok st =>
+                        simp [hwc] at hinit
+                        subst_vars
+                        rfl
+                    | Err err =>
+                        simp [hwc] at hinit
+                  rcases h with ⟨hacts, hlc⟩
+                  subst new_acts
+                  subst lc_after
+                  exact .eval_deploy origin frm contract_addr amount wc setup state
+                    (not_lt.mp hneg) (not_lt.mp hbal)
+                    (get_new_contract_addr_is_contract_addr AddrSize lc_before contract_addr haddr)
+                    hcontract hact hinit_raw
+                    (environment_equiv_trans _ _ _
+                      (environment_equiv_trans _ _ _
+                        (set_contract_state_equiv AddrSize contract_addr state
+                          (add_contract AddrSize contract_addr wc lc'))
+                        (set_contract_state_preserves_equiv AddrSize contract_addr state
+                          (lc_to_env AddrSize (add_contract AddrSize contract_addr wc lc'))
+                          (@BlockchainBase.add_contract (LocalChainBase AddrSize) contract_addr wc
+                            (lc_to_env AddrSize lc'))
+                          (add_contract_equiv AddrSize contract_addr wc lc')))
+                      (set_contract_state_preserves_equiv AddrSize contract_addr state
+                        (@BlockchainBase.add_contract (LocalChainBase AddrSize) contract_addr wc
+                          (lc_to_env AddrSize lc'))
+                        (@BlockchainBase.add_contract (LocalChainBase AddrSize) contract_addr wc
+                          (@BlockchainBase.transfer_balance (LocalChainBase AddrSize)
+                            frm contract_addr amount (lc_to_env AddrSize lc_before)))
+                        (add_contract_preserves_equiv AddrSize contract_addr wc
+                          (lc_to_env AddrSize lc')
+                          (@BlockchainBase.transfer_balance (LocalChainBase AddrSize)
+                            frm contract_addr amount (lc_to_env AddrSize lc_before))
+                          (transfer_balance_equiv AddrSize frm contract_addr amount lc_before))))
+                    rfl
+
+def execute_action_step
+    (act : LCAct AddrSize) (new_acts : List (LCAct AddrSize))
+    (lc_before lc_after : LocalChain AddrSize) :
+    execute_action AddrSize act lc_before = .Ok (new_acts, lc_after) →
+    @ActionEvaluation (LocalChainBase AddrSize)
+      (lc_to_env AddrSize lc_before) act (lc_to_env AddrSize lc_after) new_acts := by
+  letI : ChainBase := LocalChainBase AddrSize
+  intro h
+  cases act with
+  | mk origin frm body =>
+      cases body with
+      | act_transfer to_ amount =>
+          exact send_or_call_step AddrSize origin frm to_ amount none
+            { act_origin := origin, act_from := frm, act_body := .act_transfer to_ amount }
+            lc_before lc_after new_acts rfl rfl rfl h
+      | act_deploy amount wc setup =>
+          exact deploy_contract_step AddrSize origin frm amount wc setup
+            { act_origin := origin, act_from := frm, act_body := .act_deploy amount wc setup }
+            lc_before lc_after new_acts rfl rfl rfl h
+      | act_call to_ amount msg =>
+          exact send_or_call_step AddrSize origin frm to_ amount (some msg)
+            { act_origin := origin, act_from := frm, act_body := .act_call to_ amount msg }
+            lc_before lc_after new_acts rfl rfl rfl h
+
 /-! ### Chain builder
 
     The builder pairs a `LocalChain` with a *propositional* trace
     existence-witness from `empty_state`. Coq stores the trace as data
-    (proved via tactics, `Defined.`); we store `Nonempty` of the trace
-    type so that `add_block` stays computable. Anyone needing a concrete
-    trace can extract it from `Nonempty.some` using classical choice. -/
+    (proved via tactics, `Defined.`); this port stores `Nonempty` of the trace
+    type so that `add_block` stays computable. A concrete trace can be
+    extracted from `Nonempty.some` using classical choice. -/
 
 def empty_state_LCB : LCChainSt AddrSize :=
   letI : ChainBase := LocalChainBase AddrSize
@@ -305,6 +713,68 @@ theorem lc_to_chain_state_initial :
 abbrev LCTrace (frm to_ : LCChainSt AddrSize) : Type :=
   @ChainTrace (LocalChainBase AddrSize) frm to_
 
+theorem execute_actions_trace
+    (count : Nat) (acts : List (LCAct AddrSize))
+    (lc lc_final : LocalChain AddrSize) (depth_first : Bool)
+    (trace : LCTrace AddrSize (empty_state_LCB AddrSize)
+      (lc_to_chain_state AddrSize lc acts)) :
+    execute_actions AddrSize count acts lc depth_first = .Ok lc_final →
+    Nonempty (LCTrace AddrSize (empty_state_LCB AddrSize)
+      (lc_to_chain_state AddrSize lc_final [])) := by
+  revert acts lc lc_final depth_first trace
+  induction count with
+  | zero =>
+      intro acts lc lc_final depth_first trace h
+      cases acts with
+      | nil =>
+          simp [execute_actions] at h
+          exact ⟨h ▸ trace⟩
+      | cons act rest =>
+          simp [execute_actions] at h
+  | succ count ih =>
+      intro acts lc lc_final depth_first trace h
+      letI : ChainBase := LocalChainBase AddrSize
+      cases acts with
+      | nil =>
+          simp [execute_actions] at h
+          subst lc_final
+          exact ⟨trace⟩
+      | cons act rest =>
+          simp [execute_actions] at h
+          cases hexec : execute_action AddrSize act lc with
+          | Err e =>
+              simp [hexec] at h
+          | Ok pair =>
+              rcases pair with ⟨new_acts, lc_after⟩
+              simp [hexec] at h
+              have eval := execute_action_step AddrSize act new_acts lc lc_after hexec
+              let step : @ChainStep (LocalChainBase AddrSize)
+                  (lc_to_chain_state AddrSize lc (act :: rest))
+                  (lc_to_chain_state AddrSize lc_after (new_acts ++ rest)) :=
+                .step_action act rest new_acts rfl eval rfl
+              by_cases hdf : depth_first = true
+              · simp [hdf] at h
+                exact ih (new_acts ++ rest) lc_after lc_final true
+                  (ChainedList.snoc trace step) h
+              · have hdfFalse : depth_first = false := by
+                  cases depth_first <;> simp_all
+                simp [hdfFalse] at h
+                let perm_step : @ChainStep (LocalChainBase AddrSize)
+                    (lc_to_chain_state AddrSize lc_after (new_acts ++ rest))
+                    (lc_to_chain_state AddrSize lc_after (rest ++ new_acts)) :=
+                  .step_permute (environment_equiv_refl _)
+                    (List.perm_append_comm :
+                      (new_acts ++ rest).Perm (rest ++ new_acts))
+                exact ih (rest ++ new_acts) lc_after lc_final false
+                  (ChainedList.snoc (ChainedList.snoc trace step) perm_step) h
+
+/-- Executable local-chain state plus a proof-carrying trace witness.
+
+    The witness is `Nonempty` rather than direct trace data because the builder
+    is used computationally, while the trace is only consumed propositionally by
+    `ChainBuilderType.builder_trace`. Storing the concrete trace would thread
+    larger proof terms through the executable builder without changing public
+    execution behavior. -/
 structure LocalChainBuilder where
   lcb_lc : LocalChain AddrSize
   lcb_trace :
@@ -316,12 +786,42 @@ def lcb_initial : LocalChainBuilder AddrSize :=
   { lcb_lc := lc_initial AddrSize,
     lcb_trace := ⟨lc_to_chain_state_initial AddrSize ▸ ChainedList.clnil⟩ }
 
-axiom add_block_trace :
+theorem add_block_trace :
   ∀ (depth_first : Bool) (lcb : LocalChainBuilder AddrSize)
     (header : LCBH AddrSize) (actions : List (LCAct AddrSize)) (lc' : LocalChain AddrSize),
     add_block_exec AddrSize depth_first lcb.lcb_lc header actions = .Ok lc' →
     Nonempty (LCTrace AddrSize (empty_state_LCB AddrSize)
-                       (lc_to_chain_state AddrSize lc' []))
+                       (lc_to_chain_state AddrSize lc' [])) := by
+  intro depth_first lcb header actions lc' h
+  letI : ChainBase := LocalChainBase AddrSize
+  unfold add_block_exec at h
+  by_cases hv : validate_header AddrSize header (lc_to_env AddrSize lcb.lcb_lc).toChain
+  · simp [hv] at h
+    cases ho : find_origin_neq_from AddrSize actions with
+    | some act =>
+        simp [ho] at h
+    | none =>
+        simp [ho] at h
+        cases hi : find_invalid_root_action AddrSize actions with
+        | some act =>
+            simp [hi] at h
+        | none =>
+            simp [hi] at h
+            obtain ⟨prev_trace⟩ := lcb.lcb_trace
+            let lc0 := add_new_block AddrSize header lcb.lcb_lc
+            have step : @ChainStep (LocalChainBase AddrSize)
+                (lc_to_chain_state AddrSize lcb.lcb_lc [])
+                (lc_to_chain_state AddrSize lc0 actions) := by
+              letI : ChainBase := LocalChainBase AddrSize
+              refine .step_block header rfl ?_ ?_ ?_ ?_
+              · exact validate_header_valid AddrSize header
+                  (lc_to_env AddrSize lcb.lcb_lc).toChain hv
+              · exact validate_actions_valid AddrSize actions hi
+              · exact validate_origin_neq_from_valid AddrSize actions ho
+              · exact add_new_block_equiv AddrSize header lcb.lcb_lc
+            exact execute_actions_trace AddrSize 1000 actions lc0 lc' depth_first
+              (ChainedList.snoc prev_trace step) h
+  · simp [hv] at h
 
 def add_block (depth_first : Bool) (lcb : LocalChainBuilder AddrSize)
     (header : LCBH AddrSize) (actions : List (LCAct AddrSize)) :

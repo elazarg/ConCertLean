@@ -38,28 +38,50 @@ def update {V : Type} (addr : Base.Address) (val : Option V) (m : AddrMap V) : A
 
 end AddressMap
 
-axiom AddressMap_find_convertible :
-  ∀ [Base : ChainBase] {V : Type},
-    @AddressMap.find Base V = (fun addr m => FMap.find addr m)
+theorem AddressMap_find_convertible
+    [Base : ChainBase] {V : Type} :
+    @AddressMap.find Base V = (fun addr m => FMap.find addr m) := rfl
 
-axiom AddressMap_add_convertible :
-  ∀ [Base : ChainBase] {V : Type},
-    @AddressMap.add Base V = (fun addr v m => FMap.add addr v m)
+theorem AddressMap_add_convertible
+    [Base : ChainBase] {V : Type} :
+    @AddressMap.add Base V = (fun addr v m => FMap.add addr v m) := rfl
 
 /-! ### Utility helpers -/
 
 def maybe (n : Nat) : Option Nat :=
   if n == 0 then none else some n
 
-axiom maybe_cases :
-  ∀ (n : Nat),
-    (maybe n = none ∧ n = 0) ∨ (maybe n = some n ∧ n > 0)
+theorem maybe_cases (n : Nat) :
+    (maybe n = none ∧ n = 0) ∨ (maybe n = some n ∧ n > 0) := by
+  unfold maybe
+  by_cases h : n = 0
+  · subst h; left; exact ⟨rfl, rfl⟩
+  · right
+    have hne : (n == 0) = false := by simp [h]
+    rw [hne]
+    exact ⟨rfl, Nat.pos_of_ne_zero h⟩
 
-axiom maybe_sub_add :
-  ∀ (n value : Nat),
-    value ≤ n →
+theorem maybe_sub_add (n value : Nat) (h : value ≤ n) :
     (maybe ((ConCert.Utils.Extras.withDefault 0 (maybe (n - value))) + value) = none ∧ n = 0) ∨
-    (maybe ((ConCert.Utils.Extras.withDefault 0 (maybe (n - value))) + value) = some n)
+    (maybe ((ConCert.Utils.Extras.withDefault 0 (maybe (n - value))) + value) = some n) := by
+  rcases maybe_cases (n - value) with ⟨hm, hsub⟩ | ⟨hm, hsub⟩
+  · -- n - value = 0, so n = value (since value ≤ n means value = n)
+    have hn : n = value := by omega
+    rw [hm]
+    show _ = none ∧ _ = 0 ∨ _ = some n
+    unfold ConCert.Utils.Extras.withDefault maybe
+    by_cases hv : value = 0
+    · subst hv; subst hn; left; exact ⟨rfl, rfl⟩
+    · right
+      have hne : ((0 + value) == 0) = false := by simp [hv]
+      rw [hne]
+      simp [hn]
+  · rw [hm]
+    right
+    unfold ConCert.Utils.Extras.withDefault maybe
+    have hnv : (n - value + value) = n := Nat.sub_add_cancel h
+    have hne : ((n - value + value) == 0) = false := by simp [hnv]; omega
+    rw [hne, hnv]; rfl
 
 def throwIf {E : Type} (cond : Bool) (err : E) : Result Unit E :=
   if cond then .Err err else .Ok ()
@@ -78,9 +100,25 @@ def not_payable {T E : Type}
   | .Ok _ => x
   | .Err e => .Err e
 
--- TODO: port tactic destruct_throw_if
--- TODO: port tactic destruct_match_some
--- TODO: port tactic contract_simpl
--- TODO: port tactic result_to_option
+syntax "destruct_throw_if" : tactic
+syntax "destruct_match_some" : tactic
+syntax "contract_simpl" : tactic
+syntax "result_to_option" : tactic
+
+macro_rules
+  | `(tactic| destruct_throw_if) =>
+      `(tactic| unfold throwIf at * <;> split at * <;> simp_all)
+  | `(tactic| destruct_match_some) =>
+      `(tactic| first | casesm* Option _ <;> simp_all | split <;> simp_all)
+  | `(tactic| contract_simpl) =>
+      `(tactic| simp_all [throwIf, without_actions, not_payable, maybe,
+        ConCert.Execution.ResultMonad.Result.bind,
+        ConCert.Execution.ResultMonad.option_of_result,
+        ConCert.Execution.ResultMonad.result_of_option,
+        ConCert.Execution.ResultMonad.isOk,
+        ConCert.Execution.ResultMonad.isErr])
+  | `(tactic| result_to_option) =>
+      `(tactic| simp_all [ConCert.Execution.ResultMonad.option_of_result,
+        ConCert.Execution.ResultMonad.result_of_option])
 
 end ConCert.Execution.ContractCommon

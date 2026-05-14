@@ -1,7 +1,7 @@
 /- Port of execution/theories/ResultMonad.v.
 
-   `Result T E` is `Except E T` modulo naming. We keep the upstream name
-   and the `Ok`/`Err` constructors. -/
+   `Result T E` is `Except E T` modulo naming. The upstream name and
+   `Ok`/`Err` constructors are kept. -/
 
 import ConCert.Execution.Monad
 
@@ -68,32 +68,59 @@ def isOk {T E : Type} (r : Result T E) : Bool :=
 def isErr {T E : Type} (r : Result T E) : Bool :=
   match r with | .Ok _ => false | .Err _ => true
 
-axiom result_of_option_eq_some :
-  ∀ {T E : Type} (x : Option T) (e : E) (y : T),
-    result_of_option x e = .Ok y ↔ x = some y
+theorem result_of_option_eq_some
+    {T E : Type} (x : Option T) (e : E) (y : T) :
+    result_of_option x e = .Ok y ↔ x = some y := by
+  cases x with
+  | none =>
+    simp only [result_of_option]
+    refine ⟨fun h => ?_, fun h => ?_⟩ <;> cases h
+  | some a =>
+    simp only [result_of_option]
+    refine ⟨fun h => ?_, fun h => ?_⟩
+    · cases h; rfl
+    · cases h; rfl
 
-axiom result_of_option_eq_none :
-  ∀ {T E : Type} (x : Option T) (e1 e2 : E),
-    result_of_option x e1 = .Err e2 → x = none
+theorem result_of_option_eq_none
+    {T E : Type} (x : Option T) (e1 e2 : E)
+    (h : result_of_option x e1 = .Err e2) : x = none := by
+  cases x with
+  | none => rfl
+  | some a => cases h
 
-axiom isOk_Ok :
-  ∀ {T E : Type} (r : Result T E) (x : T),
-    r = .Ok x → isOk r = true
+theorem isOk_Ok
+    {T E : Type} (r : Result T E) (x : T) (h : r = .Ok x) : isOk r = true := by
+  subst h; rfl
 
-axiom isOk_Err :
-  ∀ {T E : Type} (r : Result T E) (e : E),
-    r = .Err e → isOk r = false
+theorem isOk_Err
+    {T E : Type} (r : Result T E) (e : E) (h : r = .Err e) : isOk r = false := by
+  subst h; rfl
 
-axiom isOk_exists :
-  ∀ {T E : Type} (r : Result T E),
-    isOk r = true ↔ ∃ x : T, r = .Ok x
+theorem isOk_exists
+    {T E : Type} (r : Result T E) : isOk r = true ↔ ∃ x : T, r = .Ok x := by
+  cases r with
+  | Ok t => exact ⟨fun _ => ⟨t, rfl⟩, fun _ => rfl⟩
+  | Err e =>
+    refine ⟨fun h => ?_, fun ⟨_, h⟩ => ?_⟩
+    · cases h
+    · cases h
 
-axiom isOk_not_exists :
-  ∀ {T E : Type} (r : Result T E),
-    isOk r = false ↔ ∀ x : T, r ≠ .Ok x
+theorem isOk_not_exists
+    {T E : Type} (r : Result T E) : isOk r = false ↔ ∀ x : T, r ≠ .Ok x := by
+  cases r with
+  | Ok t =>
+    refine ⟨fun h => ?_, fun h => ?_⟩
+    · cases h
+    · exact absurd rfl (h t)
+  | Err e =>
+    refine ⟨?_, ?_⟩
+    · intro _ x h; cases h
+    · intro _; rfl
 
-axiom isOk_neq_isErr :
-  ∀ {T E : Type} (r : Result T E),
-    isOk r ≠ isErr r
+theorem isOk_neq_isErr
+    {T E : Type} (r : Result T E) : isOk r ≠ isErr r := by
+  cases r
+  · intro h; cases h
+  · intro h; cases h
 
 end ConCert.Execution.ResultMonad

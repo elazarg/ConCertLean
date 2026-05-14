@@ -27,26 +27,35 @@ def clist_suffix {Point : Type} {Link : Point → Point → Type}
     (full : ChainedList Link frm to_) : Prop :=
   ∃ pfx, full = clist_app pfx sfx
 
-axiom app_clnil_l :
-  ∀ {Point : Type} {Link : Point → Point → Type}
-    {frm to_ : Point} (xs : ChainedList Link frm to_),
-    clist_app ChainedList.clnil xs = xs
+theorem app_clnil_l
+    {Point : Type} {Link : Point → Point → Type}
+    {frm to_ : Point} (xs : ChainedList Link frm to_) :
+    clist_app ChainedList.clnil xs = xs := by
+  induction xs with
+  | clnil => rfl
+  | snoc _ _ ih => simp [clist_app, ih]
 
-axiom clist_app_assoc :
-  ∀ {Point : Type} {Link : Point → Point → Type}
+theorem clist_app_assoc
+    {Point : Type} {Link : Point → Point → Type}
     {c1 c2 c3 c4 : Point}
     (xs : ChainedList Link c1 c2)
     (ys : ChainedList Link c2 c3)
-    (zs : ChainedList Link c3 c4),
-    clist_app xs (clist_app ys zs) = clist_app (clist_app xs ys) zs
+    (zs : ChainedList Link c3 c4) :
+    clist_app xs (clist_app ys zs) = clist_app (clist_app xs ys) zs := by
+  induction zs with
+  | clnil => rfl
+  | snoc _ _ ih => simp [clist_app, ih]
 
-axiom prefix_of_app :
-  ∀ {Point : Type} {Link : Point → Point → Type}
+theorem prefix_of_app
+    {Point : Type} {Link : Point → Point → Type}
     {frm mid to_ to_' : Point}
     {pfx : ChainedList Link frm mid}
     {xs : ChainedList Link frm to_}
-    {sfx : ChainedList Link to_ to_'},
-    clist_prefix pfx xs →
-    clist_prefix pfx (clist_app xs sfx)
+    {sfx : ChainedList Link to_ to_'}
+    (h : clist_prefix pfx xs) :
+    clist_prefix pfx (clist_app xs sfx) := by
+  obtain ⟨sfx0, hxs⟩ := h
+  refine ⟨clist_app sfx0 sfx, ?_⟩
+  rw [hxs, clist_app_assoc]
 
 end ConCert.Execution.ChainedList

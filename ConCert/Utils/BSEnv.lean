@@ -1,5 +1,6 @@
 /- Port of utils/theories/BSEnv.v. Same as Env.v but over MetaRocq's bytestring.
-   In Lean we just use `String` again; the two ports collapse. -/
+   Lean uses `String` for both string-environment variants, so this module
+   collapses to `Env`. -/
 
 import ConCert.Utils.Env
 

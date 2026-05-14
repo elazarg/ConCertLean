@@ -1,22 +1,27 @@
 /- Port of execution/test/TestUtils.v.
 
-   Minimal Plausible-based shim. The original is hundreds of QuickChick-specific
-   helpers; we expose just enough to make the other test files type-check.
-   Concrete generators/checkers can be filled in as needed. -/
+   Minimal Plausible-based compatibility layer. The original is hundreds of
+   QuickChick-specific helpers; this module keeps the surface needed by the
+   ported test files. -/
 
 import Plausible.Gen
 import Plausible.Sampleable
 import Plausible.Testable
 import ConCert.Execution.Blockchain
+import ConCert.Execution.BoundedN
 import ConCert.Execution.Containers
+import ConCert.Execution.ResultMonad
 import ConCert.Execution.Serializable
 import ConCert.Execution.ChainedList
+import ConCert.Execution.Test.LocalBlockchain
 
 namespace ConCert.Execution.Test.TestUtils
 
 open ConCert.Execution.BlockchainBase
+open ConCert.Execution.BlockchainBuilder
 open ConCert.Execution.SerializableBase
 open ConCert.Execution.Containers
+open ConCert.Execution.ResultMonad
 open Plausible
 
 /-! QuickChick-style names mapped onto Plausible. -/
@@ -28,8 +33,9 @@ abbrev GOpt (A : Type) := Plausible.Gen (Option A)
 @[inline] def bindGen {A B : Type} (g : Plausible.Gen A) (f : A → Plausible.Gen B) :
     Plausible.Gen B := g >>= f
 
-/-- A `Checker` here is just a thunked boolean — we don't drag in Plausible's
-    `Testable` infrastructure since most call sites only need composition. -/
+/-- A `Checker` here is a thunked boolean. This avoids depending on
+    Plausible's `Testable` infrastructure where call sites only need
+    composition. -/
 abbrev Checker := Plausible.Gen Bool
 
 @[inline] def checker (b : Bool) : Checker := pure b
@@ -48,23 +54,45 @@ def AddrSize : Nat := 256
 def ContractAddrBase : Nat := 128
 def DepthFirst : Bool := true
 
-/-! Stub helpers — kept as polymorphic defs over an arbitrary `Base : ChainBase`
-    so they compose with the rest of the blockchain layer. Concrete blockchain
-    operations (`build_call`, `build_transfer`, `build_deploy`) come back as
-    real defs over the proper `Action` / `ActionBody` types. -/
-
-variable [Base : ChainBase]
+/-! Compatibility helpers over an arbitrary `Base : ChainBase`. Concrete
+    blockchain operations (`build_call`, `build_transfer`, `build_deploy`) are
+    real definitions over the proper `Action` / `ActionBody` types. -/
 
 /-- Constructing `Base.Address` values requires knowing the concrete address
-    representation of the underlying chain. In test code parameterized over
-    an abstract `ChainBase` we have to thread these through; we package them
-    in a small typeclass that a concrete blockchain (e.g. `LocalChainBase`)
-    instantiates. -/
-class TestAddresses where
+    representation of the underlying chain. In test code parameterized over an
+    abstract `ChainBase`, these conversions must be supplied explicitly. The
+    small typeclass is instantiated by concrete blockchains such as
+    `LocalChainBase`. -/
+class TestAddresses (Base : ChainBase) where
   addr_of_Z : Int → Base.Address
   addr_of_N : Nat → Base.Address
 
-variable [TA : @TestAddresses Base]
+private def localDefaultAddress : ConCert.Execution.BoundedN AddrSize :=
+  ⟨0, by unfold AddrSize; decide⟩
+
+instance localChainBaseTestAddresses :
+    TestAddresses (ConCert.Execution.Test.LocalBlockchain.LocalChainBase AddrSize) where
+  addr_of_Z z :=
+    match ConCert.Execution.BoundedN.of_Z (bound := AddrSize) z with
+    | some addr => addr
+    | none => localDefaultAddress
+  addr_of_N n :=
+    match ConCert.Execution.BoundedN.of_N (bound := AddrSize) n with
+    | some addr => addr
+    | none => localDefaultAddress
+
+noncomputable instance localChainBuilder :
+    @ChainBuilderType (ConCert.Execution.Test.LocalBlockchain.LocalChainBase AddrSize) :=
+  ConCert.Execution.Test.LocalBlockchain.LocalChainBuilderImpl AddrSize DepthFirst
+
+def empty_chain : ConCert.Execution.Test.LocalBlockchain.LocalChainBuilder AddrSize :=
+  ConCert.Execution.Test.LocalBlockchain.lcb_initial AddrSize
+
+def get_contracts
+    (chain : ConCert.Execution.Test.LocalBlockchain.LocalChainBuilder AddrSize) :=
+  chain.lcb_lc.lc_contracts
+
+variable [Base : ChainBase] [TA : TestAddresses Base]
 
 def addr_of_Z (z : Int) : Base.Address := TA.addr_of_Z z
 def addr_of_N (n : Nat) : Base.Address := TA.addr_of_N n
@@ -76,6 +104,7 @@ def person_2      : Base.Address := addr_of_Z 12
 def person_3      : Base.Address := addr_of_Z 13
 def person_4      : Base.Address := addr_of_Z 14
 def person_5      : Base.Address := addr_of_Z 15
+def contract_base_addr : Base.Address := addr_of_N ContractAddrBase
 
 def test_chain_addrs_3 : List Base.Address := [person_1, person_2, person_3]
 def test_chain_addrs_5 : List Base.Address := test_chain_addrs_3 ++ [person_4, person_5]
@@ -125,7 +154,51 @@ def get_contract_state {S : Type} [Serializable S]
   | some ser => deserialize ser
   | none => none
 
+def split_at_first_satisfying_fix {A : Type} (p : A → Bool) :
+    List A → List A → Option (List A × List A)
+  | [], _ => none
+  | x :: xs, acc =>
+      if p x then
+        some (acc ++ [x], xs)
+      else
+        split_at_first_satisfying_fix p xs (acc ++ [x])
+
+def split_at_first_satisfying {A : Type} (p : A → Bool) (l : List A) :
+    Option (List A × List A) :=
+  split_at_first_satisfying_fix p l []
+
+def pickDrop {T E : Type} (default : E)
+    (xs : List (Nat × G (Result T E))) (n : Nat) :
+    Nat × G (Result T E) × List (Nat × G (Result T E)) :=
+  match xs with
+  | [] => (0, returnGen (.Err default), [])
+  | (k, x) :: xs =>
+      if n < k then
+        (k, x, xs)
+      else
+        let (k', x', xs') := pickDrop default xs (n - k)
+        (k', x', (k, x) :: xs')
+
+def backtrack_result_fix {T E : Type} (default : E) :
+    Nat → List (Nat × G (Result T E)) → G (Result T E)
+  | 0, _ => returnGen (.Err default)
+  | _ + 1, [] => returnGen (.Err default)
+  | fuel + 1, (_, g) :: gs => do
+      let ma ← g
+      match ma with
+      | .Ok _ => returnGen ma
+      | .Err _ => backtrack_result_fix default fuel gs
+
+def backtrack_result {T E : Type} (default : E)
+    (gs : List (Nat × G (Result T E))) : G (Result T E) :=
+  backtrack_result_fix default gs.length gs
+
 /-! GOpt helpers. -/
+
+def elems_opt {A : Type} (l : List A) : GOpt A :=
+  match l with
+  | x :: _ => returnGen (some x)
+  | [] => returnGen none
 
 def returnGenSome {A : Type} (a : A) : GOpt A := (pure (some a) : Plausible.Gen _)
 
@@ -143,5 +216,93 @@ def bindOpt {A B : Type} (g : GOpt A) (f : A → GOpt B) : GOpt B :=
     (match oa with
      | some a => f a
      | none   => pure none : Plausible.Gen _) : Plausible.Gen _)
+
+def sampleFMapOpt {A B : Type} [Ord A] [LawfulOrd A] (m : FMap A B) :
+    GOpt (A × B) :=
+  elems_opt (FMap.elements m)
+
+def sampleFMapOpt_filter {A B : Type} [Ord A] [LawfulOrd A]
+    (m : FMap A B) (f : (A × B) → Bool) : GOpt (A × B) :=
+  elems_opt ((FMap.elements m).filter f)
+
+def sample2UniqueFMapOpt {A B : Type} [Ord A] [LawfulOrd A] (m : FMap A B) :
+    GOpt ((A × B) × (A × B)) :=
+  bindOpt (sampleFMapOpt m) (fun p1 =>
+    bindOpt (sampleFMapOpt (FMap.remove p1.1 m)) (fun p2 =>
+      returnGenSome (p1, p2)))
+
+def gBoundedNOpt (bound : Nat) : GOpt (ConCert.Execution.BoundedN bound) :=
+  match ConCert.Execution.BoundedN.of_N (bound := bound) 0 with
+  | some addr => returnGenSome addr
+  | none => returnGen none
+
+def gBoundedN : G (ConCert.Execution.BoundedN AddrSize) :=
+  returnGen localDefaultAddress
+
+def gAddress_ (default : Base.Address) (addrs : List Base.Address) : G Base.Address :=
+  match addrs with
+  | [] => returnGen default
+  | addr :: _ => returnGen addr
+
+def gAddress (addrs : List Base.Address) : G Base.Address :=
+  gAddress_ zero_address addrs
+
+def gTestAddrs3 : G Base.Address := gAddress test_chain_addrs_3
+
+def gTestAddrs5 : G Base.Address := gAddress test_chain_addrs_5
+
+def gUserAddress : GOpt Base.Address :=
+  returnGenSome (addr_of_N 0)
+
+def gContractAddress : GOpt Base.Address :=
+  returnGenSome contract_base_addr
+
+def gAddrWithout (ws addrs : List Base.Address) : G Base.Address :=
+  let addrs' := addrs.filter (fun a => !(ws.any (fun w => Base.address_eqb a w)))
+  gAddress addrs'
+
+def gUniqueAddrPair (addrs : List Base.Address) : GOpt (Base.Address × Base.Address) :=
+  bindOpt (elems_opt addrs) (fun addr1 =>
+    let addrs' := addrs.filter (fun a => !(Base.address_eqb addr1 a))
+    bindOpt (elems_opt addrs') (fun addr2 =>
+      returnGenSome (addr1, addr2)))
+
+def optToVector {A : Type} : Nat → GOpt A → G (List A)
+  | 0, _ => returnGen []
+  | n + 1, g => do
+      let oa ← g
+      let rest ← optToVector n g
+      match oa with
+      | some a => returnGen (a :: rest)
+      | none => returnGen rest
+
+def isSomeCheck {A : Type} (a : Option A) (f : A → Bool) : Checker :=
+  match a with
+  | some v => checker (f v)
+  | none => checker true
+
+def existsP {A : Type} (g : G A) (p : A → Bool) : Checker := do
+  let a ← g
+  checker (p a)
+
+def existsPShrink {A : Type} (g : G A) (p : A → Bool) : Checker :=
+  existsP g p
+
+def discard_empty {A : Type} (l : List A) (f : List A → Checker) : Checker :=
+  match l with
+  | [] => checker true
+  | _ => f l
+
+def forEachMapEntry {A B : Type} [Ord A] [LawfulOrd A]
+    (m : FMap A B) (pf : A → B → Bool) : Checker :=
+  conjoin_map (fun p => checker (pf p.1 p.2)) (FMap.elements m)
+
+def repeatWith {A : Type} (l : List A) (c : A → Checker) : Checker :=
+  conjoin (l.map c)
+
+def discardToSuccess (p : Checker) : Checker := p
+
+def conjoin_no_discard (l : List Checker) : Checker :=
+  conjoin_map discardToSuccess l
 
 end ConCert.Execution.Test.TestUtils

@@ -4,6 +4,9 @@ namespace ConCert.Utils.StringExtra
 
 def strRev (s : String) : String := String.ofList s.toList.reverse
 
+/-- Coq-name compatibility alias. -/
+abbrev str_rev (s : String) : String := strRev s
+
 def hexDigitOfNibble : Nat → Char
   | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3'
   | 4 => '4' | 5 => '5' | 6 => '6' | 7 => '7'
@@ -20,6 +23,9 @@ def hex_of_N (n : Nat) : String :=
     go n ""
 
 def hex_of_nat (n : Nat) : String := hex_of_N n
+
+/-- Coq-name compatibility alias. Lean represents `positive` as `Nat` on this surface. -/
+def hex_of_positive (p : Nat) : String := hex_of_N p
 
 def hex_of_Z (z : Int) : String :=
   if z = 0 then "0"
@@ -58,6 +64,10 @@ def remove_char (orig : Char) (s : String) : String :=
 def starts_with (withStr : String) (s : String) : Bool :=
   s.startsWith withStr
 
+/-- Coq-name compatibility alias for the continuation helper. -/
+def starts_with_cont (withStr s : String) (k : String → Bool) : Bool :=
+  if starts_with withStr s then k (String.ofList (s.toList.drop withStr.length)) else false
+
 /-- `replace "" _ s = s` (no-op on empty pattern). Lean's
     `String.replace` doesn't special-case empty and would insert `newS`
     between every character. -/
@@ -70,8 +80,8 @@ def substring_from (from_ : Nat) (s : String) : String :=
 def substring_count (cnt : Nat) (s : String) : String :=
   String.ofList (s.toList.take cnt)
 
-/-- Deviation: applies `f`. The upstream Coq `str_map` ignores its
-    function argument (apparent source-level oversight); we don't. -/
+/-- Deviation: applies `f`. The upstream Coq `str_map` appears to ignore its
+    function argument by mistake. -/
 def str_map (f : Char → Char) (s : String) : String := s.map f
 
 def last_index_of (c : Char) (s : String) : Option Nat :=

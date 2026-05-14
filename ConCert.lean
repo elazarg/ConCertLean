@@ -42,3 +42,4 @@ import ConCert.Execution.Test.TraceGens
 import ConCert.Examples.Counter.Counter
 import ConCert.Examples.Escrow.Escrow
 import ConCert.Examples.Escrow.EscrowCorrect
+import ConCert.Examples.PiggyBank.PiggyBank

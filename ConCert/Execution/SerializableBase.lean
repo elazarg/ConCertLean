@@ -58,8 +58,22 @@ instance eq_dec : ∀ (a b : SerializedType), Decidable (a = b)
   | .ser_list _, .ser_bool => .isFalse (fun h => by injection h)
   | .ser_list _, .ser_pair _ _ => .isFalse (fun h => by injection h)
 
-axiom eqb_spec :
-  ∀ (a b : SerializedType), (eqb a b = true) ↔ (a = b)
+theorem eqb_spec :
+  ∀ (a b : SerializedType), (eqb a b = true) ↔ (a = b) := by
+  intro a
+  induction a with
+  | ser_unit => intro b; cases b <;> simp [eqb]
+  | ser_int => intro b; cases b <;> simp [eqb]
+  | ser_bool => intro b; cases b <;> simp [eqb]
+  | ser_pair a1 a2 ih1 ih2 =>
+      intro b
+      cases b <;> simp [eqb]
+      case ser_pair b1 b2 =>
+        simp [ih1 b1, ih2 b2]
+  | ser_list a ih =>
+      intro b
+      cases b <;> simp [eqb]
+      case ser_list b => exact ih b
 
 end SerializedType
 
@@ -73,6 +87,11 @@ def interp_type : SerializedType → Type
 structure SerializedValue where
   ser_value_type : SerializedType
   ser_value      : interp_type ser_value_type
+
+theorem SerializedValue.eta (v : SerializedValue) :
+    ({ ser_value_type := v.ser_value_type, ser_value := v.ser_value } : SerializedValue) = v := by
+  cases v
+  rfl
 
 /-- Cast a `SerializedValue` to `interp_type t` if the tag matches. -/
 def extract_ser_value (t : SerializedType) (value : SerializedValue) : Option (interp_type t) :=
@@ -101,8 +120,12 @@ instance SerializableComplete_Serializable (A : Type) [inst : Serializable A] :
     SerializableComplete A where
   complete := @deserialize_serialize A inst
 
-axiom serialize_injective :
+theorem serialize_injective :
   ∀ {T : Type} [Serializable T] (x y : T),
-    serialize x = serialize y → x = y
+    serialize x = serialize y → x = y := by
+  intro T inst x y h
+  have hs : some x = some y := by
+    rw [← Serializable.deserialize_serialize x, ← Serializable.deserialize_serialize y, h]
+  injection hs
 
 end ConCert.Execution.SerializableBase

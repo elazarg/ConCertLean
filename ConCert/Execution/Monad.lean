@@ -20,10 +20,13 @@ def monad_map {A B : Type} {m : Type → Type} [Monad m]
     let vs ← monad_map f xs
     pure (v :: vs)
 
-axiom monad_map_map :
-  ∀ {A B Z : Type} {m : Type → Type} [Monad m]
-    (f : A → m B) (g : Z → A) (xs : List Z),
-    monad_map f (xs.map g) = monad_map (fun z => f (g z)) xs
+theorem monad_map_map
+    {A B Z : Type} {m : Type → Type} [Monad m]
+    (f : A → m B) (g : Z → A) (xs : List Z) :
+    monad_map f (xs.map g) = monad_map (fun z => f (g z)) xs := by
+  induction xs with
+  | nil => rfl
+  | cons hd tl ih => simp [List.map, monad_map, ih]
 
 def monad_foldr {A B : Type} {m : Type → Type} [Monad m]
     (f : A → B → m A) (a : A) : List B → m A

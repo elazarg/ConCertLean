@@ -1,6 +1,6 @@
 /- Port of execution/test/TestNotation.v.
 
-   Minimal shim: parameters carrier + a couple of helpers. The bulk of
+   Minimal compatibility layer: parameters carrier and a few helpers. The bulk of
    the original is generator notations (`cb ~~> pf`, Hoare-triple syntax)
    which need a real notation pass. -/
 

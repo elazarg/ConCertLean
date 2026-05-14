@@ -44,28 +44,38 @@ def address_neqb (x y : Base.Address) : Bool :=
 def address_not_contract (x : Base.Address) : Bool :=
   !(Base.address_is_contract x)
 
-axiom address_eq_refl :
-  ∀ {Base : ChainBase} (x : Base.Address), Base.address_eqb x x = true
+theorem address_eq_refl (x : Base.Address) : Base.address_eqb x x = true :=
+  (Base.address_eqb_spec x x).mpr rfl
 
-axiom address_eq_ne :
-  ∀ {Base : ChainBase} (x y : Base.Address),
-    x ≠ y → Base.address_eqb x y = false
+theorem address_eq_ne (x y : Base.Address)
+    (h : x ≠ y) : Base.address_eqb x y = false := by
+  cases hk : Base.address_eqb x y with
+  | true => exact absurd ((Base.address_eqb_spec x y).mp hk) h
+  | false => rfl
 
-axiom address_eq_ne' :
-  ∀ {Base : ChainBase} (x y : Base.Address),
-    x ≠ y ↔ Base.address_eqb x y = false
+theorem address_eq_ne' (x y : Base.Address) :
+    x ≠ y ↔ Base.address_eqb x y = false := by
+  refine ⟨address_eq_ne x y, fun h heq => ?_⟩
+  rw [heq, address_eq_refl] at h
+  cases h
 
-axiom address_eq_sym :
-  ∀ {Base : ChainBase} (x y : Base.Address),
-    Base.address_eqb x y = Base.address_eqb y x
+theorem address_eq_sym (x y : Base.Address) :
+    Base.address_eqb x y = Base.address_eqb y x := by
+  by_cases h : x = y
+  · subst h; rfl
+  · rw [address_eq_ne x y h, address_eq_ne y x (Ne.symm h)]
 
-axiom address_neqb_eq :
-  ∀ {Base : ChainBase} (x y : Base.Address),
-    address_neqb x y = false ↔ x = y
+theorem address_neqb_eq (x y : Base.Address) :
+    address_neqb x y = false ↔ x = y := by
+  unfold address_neqb
+  rw [show ((!Base.address_eqb x y) = false) ↔ (Base.address_eqb x y = true) by
+        cases Base.address_eqb x y <;> simp]
+  exact Base.address_eqb_spec x y
 
-axiom address_neq_sym :
-  ∀ {Base : ChainBase} (x y : Base.Address),
-    address_neqb x y = address_neqb y x
+theorem address_neq_sym (x y : Base.Address) :
+    address_neqb x y = address_neqb y x := by
+  unfold address_neqb
+  rw [address_eq_sym]
 
 end Address
 
@@ -263,12 +273,28 @@ def contract_state
     (env : @Environment Base) (addr : Base.Address) : Option A :=
   env.env_contract_states addr >>= deserialize
 
-axiom environment_equiv_refl : ∀ (e : @Environment Base), EnvironmentEquiv e e
-axiom environment_equiv_symm :
-  ∀ (e1 e2 : @Environment Base), EnvironmentEquiv e1 e2 → EnvironmentEquiv e2 e1
-axiom environment_equiv_trans :
-  ∀ (e1 e2 e3 : @Environment Base),
-    EnvironmentEquiv e1 e2 → EnvironmentEquiv e2 e3 → EnvironmentEquiv e1 e3
+theorem environment_equiv_refl (e : @Environment Base) : EnvironmentEquiv e e where
+  chain_eq := rfl
+  account_balances_eq _ := rfl
+  contracts_eq _ := rfl
+  contract_states_eq _ := rfl
+
+theorem environment_equiv_symm
+    (e1 e2 : @Environment Base) (h : EnvironmentEquiv e1 e2) :
+    EnvironmentEquiv e2 e1 where
+  chain_eq := h.chain_eq.symm
+  account_balances_eq a := (h.account_balances_eq a).symm
+  contracts_eq a := (h.contracts_eq a).symm
+  contract_states_eq a := (h.contract_states_eq a).symm
+
+theorem environment_equiv_trans
+    (e1 e2 e3 : @Environment Base)
+    (h12 : EnvironmentEquiv e1 e2) (h23 : EnvironmentEquiv e2 e3) :
+    EnvironmentEquiv e1 e3 where
+  chain_eq := h12.chain_eq.trans h23.chain_eq
+  account_balances_eq a := (h12.account_balances_eq a).trans (h23.account_balances_eq a)
+  contracts_eq a := (h12.contracts_eq a).trans (h23.contracts_eq a)
+  contract_states_eq a := (h12.contract_states_eq a).trans (h23.contract_states_eq a)
 
 def transfer_balance (frm to_ : Base.Address)
     (amount : Amount) (env : @Environment Base) : @Environment Base :=
@@ -463,11 +489,50 @@ inductive ChainStep (prev_bstate next_bstate : @ChainState Base) where
         List.Perm prev_bstate.chain_state_queue next_bstate.chain_state_queue →
         ChainStep prev_bstate next_bstate
 
-axiom origin_is_account :
-  ∀ (acts : List (@Action Base)),
-    acts.Forall act_is_from_account →
-    acts.Forall act_origin_is_eq_from →
-    acts.Forall act_origin_is_account
+theorem origin_is_account
+    (acts : List (@Action Base))
+    (hfrom : acts.Forall act_is_from_account)
+    (heq : acts.Forall act_origin_is_eq_from) :
+    acts.Forall act_origin_is_account := by
+  -- Translate Forall ↔ ∀ x ∈ l via direct induction on acts.
+  have lift_forall : ∀ {P : @Action Base → Prop} {l : List (@Action Base)},
+      l.Forall P → (∀ a, a ∈ l → P a) := by
+    intro P l hP a ha
+    induction l with
+    | nil => cases ha
+    | cons hd tl ih =>
+      match tl, hP with
+      | [], hP =>
+        rw [List.mem_singleton] at ha
+        subst ha; exact hP
+      | hd' :: tl', ⟨hhd, htl⟩ =>
+        rw [List.mem_cons] at ha
+        cases ha with
+        | inl heq => subst heq; exact hhd
+        | inr hx => exact ih htl hx
+  have build_forall : ∀ {P : @Action Base → Prop} {l : List (@Action Base)},
+      (∀ a, a ∈ l → P a) → l.Forall P := by
+    intro P l hP
+    induction l with
+    | nil => exact trivial
+    | cons hd tl ih =>
+      match tl with
+      | [] =>
+        show P hd
+        exact hP hd List.mem_cons_self
+      | hd' :: tl' =>
+        refine ⟨hP hd List.mem_cons_self, ?_⟩
+        exact ih (fun a ha => hP a (List.mem_cons_of_mem _ ha))
+  apply build_forall
+  intro a ha
+  have hf := lift_forall hfrom a ha
+  have he := lift_forall heq a ha
+  unfold act_origin_is_account
+  unfold act_is_from_account at hf
+  unfold act_origin_is_eq_from at he
+  have horiginEq : a.act_origin = a.act_from :=
+    (Base.address_eqb_spec _ _).mp he
+  rw [horiginEq]; exact hf
 
 /-! ### Reachability -/
 
@@ -646,10 +711,22 @@ def is_transfer : @ActionBody Base → Bool
   | .act_transfer _ _ => true
   | _ => false
 
--- TODO: port tactic destruct_address_eq
--- TODO: port tactic destruct_chain_step
--- TODO: port tactic destruct_action_eval
--- TODO: port tactic rewrite_environment_equiv
--- TODO: port tactic solve_proper
+syntax "destruct_address_eq" : tactic
+syntax "destruct_chain_step" : tactic
+syntax "destruct_action_eval" : tactic
+syntax "rewrite_environment_equiv" : tactic
+syntax "solve_proper" : tactic
+
+macro_rules
+  | `(tactic| destruct_address_eq) =>
+      `(tactic| first | split <;> simp_all | simp_all)
+  | `(tactic| destruct_chain_step) =>
+      `(tactic| casesm* ChainStep _ _ <;> simp_all)
+  | `(tactic| destruct_action_eval) =>
+      `(tactic| casesm* ActionEvaluation _ _ _ _ <;> simp_all)
+  | `(tactic| rewrite_environment_equiv) =>
+      `(tactic| simp_all [EnvironmentEquiv])
+  | `(tactic| solve_proper) =>
+      `(tactic| first | rfl | simp_all)
 
 end ConCert.Execution.BlockchainBase

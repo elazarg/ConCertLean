@@ -1,8 +1,8 @@
 /- Port of execution/test/ChainPrinters.v.
 
-   Minimal shim. The original derives `Show` instances for chain types
-   via QuickChick's `Derive Show` Ltac; we provide trivial stringification
-   shells. -/
+   Minimal compatibility layer. The original derives `Show` instances for
+   chain types via QuickChick's `Derive Show` Ltac; this port provides simple
+   stringification shells. -/
 
 import ConCert.Execution.Blockchain
 import ConCert.Execution.Serializable
