@@ -12,6 +12,7 @@ import ConCert.Execution.BlockchainInduction
 import ConCert.Execution.ChainedList
 import ConCert.Execution.ResultMonad
 import ConCert.Execution.SerializableBase
+import ConCert.Utils.Extras
 
 namespace ConCert.Execution.BlockchainBFS
 

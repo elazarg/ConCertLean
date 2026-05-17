@@ -93,6 +93,46 @@ theorem SerializedValue.eta (v : SerializedValue) :
   cases v
   rfl
 
+private def interp_type_decidableEq : (t : SerializedType) → DecidableEq (interp_type t)
+  | .ser_unit => by
+      change DecidableEq Unit
+      infer_instance
+  | .ser_int => by
+      change DecidableEq Int
+      infer_instance
+  | .ser_bool => by
+      change DecidableEq Bool
+      infer_instance
+  | .ser_pair a b => by
+      change DecidableEq (interp_type a × interp_type b)
+      haveI := interp_type_decidableEq a
+      haveI := interp_type_decidableEq b
+      infer_instance
+  | .ser_list a => by
+      change DecidableEq (List (interp_type a))
+      haveI := interp_type_decidableEq a
+      infer_instance
+
+instance SerializedValue.instDecidableEq : DecidableEq SerializedValue := by
+  intro x y
+  cases x with
+  | mk xt xv =>
+    cases y with
+    | mk yt yv =>
+      by_cases ht : xt = yt
+      · subst ht
+        haveI := interp_type_decidableEq xt
+        by_cases hv : xv = yv
+        · exact isTrue (by subst hv; rfl)
+        · exact isFalse (by
+            intro h
+            cases h
+            exact hv rfl)
+      · exact isFalse (by
+          intro h
+          injection h with ht'
+          exact ht ht')
+
 /-- Cast a `SerializedValue` to `interp_type t` if the tag matches. -/
 def extract_ser_value (t : SerializedType) (value : SerializedValue) : Option (interp_type t) :=
   if h : value.ser_value_type = t then

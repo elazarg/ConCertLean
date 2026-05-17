@@ -6,6 +6,7 @@
    distinct insertion orders give distinct values. -/
 
 import Std.Data.ExtTreeMap
+import Mathlib.Data.Prod.Lex
 import Mathlib.Data.List.Perm.Basic
 import Mathlib.Data.List.Nodup
 import Mathlib.Data.List.Pairwise
@@ -24,6 +25,54 @@ theorem LawfulOrd.compare_eq_iff_eq {α : Type} [Ord α] [LawfulOrd α] (a b : �
   constructor
   · exact Std.LawfulEqCmp.eq_of_compare
   · intro h; subst h; exact Std.ReflCmp.compare_self
+
+instance instLawfulOrdNat : LawfulOrd Nat where
+  eq_swap {a b} := by
+    exact Std.OrientedCmp.eq_swap
+  isLE_trans {a b c} := by
+    exact Std.TransCmp.isLE_trans
+  compare_self {a} := by
+    exact Std.ReflCmp.compare_self
+  eq_of_compare {a b} := by
+    intro h
+    exact Std.LawfulEqCmp.eq_of_compare h
+
+instance instLawfulOrdInt : LawfulOrd Int where
+  eq_swap {a b} := by
+    exact Std.OrientedCmp.eq_swap
+  isLE_trans {a b c} := by
+    exact Std.TransCmp.isLE_trans
+  compare_self {a} := by
+    exact Std.ReflCmp.compare_self
+  eq_of_compare {a b} := by
+    intro h
+    exact Std.LawfulEqCmp.eq_of_compare h
+
+instance instLawfulOrdString : LawfulOrd String where
+  eq_swap {a b} := by
+    exact Std.OrientedCmp.eq_swap
+  isLE_trans {a b c} := by
+    exact Std.TransCmp.isLE_trans
+  compare_self {a} := by
+    exact Std.ReflCmp.compare_self
+  eq_of_compare {a b} := by
+    intro h
+    exact Std.LawfulEqCmp.eq_of_compare h
+
+instance instOrdProd {α β : Type} [Ord α] [Ord β] : Ord (α × β) :=
+  Ord.lex inferInstance inferInstance
+
+instance instLawfulOrdProd {α β : Type} [Ord α] [LawfulOrd α] [Ord β] [LawfulOrd β] :
+    LawfulOrd (α × β) where
+  eq_swap {a b} := by
+    exact Std.OrientedCmp.eq_swap
+  isLE_trans {a b c} := by
+    exact Std.TransCmp.isLE_trans
+  compare_self {a} := by
+    exact Std.ReflCmp.compare_self
+  eq_of_compare {a b} := by
+    intro h
+    exact Std.LawfulEqCmp.eq_of_compare h
 
 /-- Finite map. Backed by `Std.ExtTreeMap`; equality is map equality. -/
 abbrev FMap (K : Type) [Ord K] [LawfulOrd K] (V : Type) : Type :=

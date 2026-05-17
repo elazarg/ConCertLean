@@ -1,8 +1,7 @@
 /- Port of execution/test/TestNotation.v.
 
-   Minimal compatibility layer: parameters carrier and a few helpers. The bulk of
-   the original is generator notations (`cb ~~> pf`, Hoare-triple syntax)
-   which need a real notation pass. -/
+   Parameters carrier, generated-chain wrappers, and boolean checker
+   combinators used by the ported smoke/property tests. -/
 
 import ConCert.Execution.Blockchain
 import ConCert.Execution.Test.TestUtils
@@ -12,6 +11,7 @@ namespace ConCert.Execution.Test.TestNotation
 
 open ConCert.Execution.BlockchainBase
 open ConCert.Execution.Test.TestUtils
+open ConCert.Execution.Test.TraceGens
 
 def max_trace_length : Nat := 7
 def max_acts_per_block : Nat := 2
@@ -30,5 +30,13 @@ def checkForAllStatesInTrace {A : Type}
     A → List (@ChainState Base) → List (@ChainState Base) → Checker :=
   fun _ pre_trace post_trace =>
     checker (post_trace.foldl (fun a cs => a && Q pre_trace cs) true)
+
+def forAllGeneratedLocalChainBuilders
+    (blocks : Nat) (pf : TestLocalChainBuilder → Bool) : Checker :=
+  forAllGen (gLocalChainBuilder blocks) pf
+
+def forAllGeneratedLocalChains
+    (blocks : Nat) (pf : TestLocalChain → Bool) : Checker :=
+  forAllGeneratedLocalChainBuilders blocks (fun cb => pf cb.lcb_lc)
 
 end ConCert.Execution.Test.TestNotation

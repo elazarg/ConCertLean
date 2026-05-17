@@ -611,6 +611,7 @@ structure ContractCallInfo (Msg : Type) where
   call_from   : Base.Address
   call_amount : Amount
   call_msg    : Option Msg
+  deriving DecidableEq
 
 /-- Extract calls to `addr` recorded in a single chain step. Returns
     `Option (List _)` because deserialization of the message may fail. -/
@@ -710,23 +711,5 @@ def is_call : @ActionBody Base → Bool
 def is_transfer : @ActionBody Base → Bool
   | .act_transfer _ _ => true
   | _ => false
-
-syntax "destruct_address_eq" : tactic
-syntax "destruct_chain_step" : tactic
-syntax "destruct_action_eval" : tactic
-syntax "rewrite_environment_equiv" : tactic
-syntax "solve_proper" : tactic
-
-macro_rules
-  | `(tactic| destruct_address_eq) =>
-      `(tactic| first | split <;> simp_all | simp_all)
-  | `(tactic| destruct_chain_step) =>
-      `(tactic| casesm* ChainStep _ _ <;> simp_all)
-  | `(tactic| destruct_action_eval) =>
-      `(tactic| casesm* ActionEvaluation _ _ _ _ <;> simp_all)
-  | `(tactic| rewrite_environment_equiv) =>
-      `(tactic| simp_all [EnvironmentEquiv])
-  | `(tactic| solve_proper) =>
-      `(tactic| first | rfl | simp_all)
 
 end ConCert.Execution.BlockchainBase

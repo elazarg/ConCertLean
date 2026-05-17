@@ -4,6 +4,7 @@ import ConCert.Execution.ChainedList
 import ConCert.Execution.Monad
 import ConCert.Execution.ResultMonad
 import ConCert.Execution.Serializable
+import ConCert.Execution.Finite
 import ConCert.Execution.BlockchainBase
 import ConCert.Execution.BlockchainTheories
 
@@ -14,6 +15,7 @@ open ConCert.Execution.BlockchainTheories
 open ConCert.Execution.SerializableBase
 open ConCert.Execution.ResultMonad
 open ConCert.Execution.ChainedList
+open ConCert.Execution.Finite
 
 variable [Base : ChainBase]
 
@@ -99,11 +101,166 @@ abbrev DeployableAddressDecidableAssumption : Prop :=
     DeployableAddressExists bstate wc setup act_origin act_from amount ∨
     ¬ DeployableAddressExists bstate wc setup act_origin act_from amount
 
-/-- Coq states this as an `Axiom` even in the upstream source: assumes that
-    for any reachable state and prospective deploy, it is decidable whether
-    *some* fresh contract address allows the deploy's `init` to succeed. -/
-axiom deployable_address_decidable :
-  DeployableAddressDecidableAssumption (Base := Base)
+/-- Prop-level deployability decision.
+
+    The upstream Rocq development states this as an axiom. In Lean this
+    statement lives in `Prop`, so standard classical excluded middle discharges
+    it without a project-specific axiom. Executable fresh-address search is
+    still available separately as `deployable_address_decidable_of_finite`. -/
+theorem deployable_address_decidable :
+    DeployableAddressDecidableAssumption (Base := Base) := by
+  intro bstate wc setup act_origin act_from amount _reachable
+  exact Classical.em
+    (DeployableAddressExists bstate wc setup act_origin act_from amount)
+
+def deployable_address_candidate_result
+    (bstate : @ChainState Base) (wc : @WeakContract Base)
+    (setup : SerializedValue) (act_origin act_from : Base.Address)
+    (amount : Amount) (addr : Base.Address) : Option SerializedValue :=
+  if Base.address_is_contract addr = true then
+    match bstate.env_contracts addr with
+    | none =>
+        match wc_init wc
+            (transfer_balance act_from addr amount bstate.toEnvironment).toChain
+            { ctx_origin := act_origin, ctx_from := act_from,
+              ctx_contract_address := addr,
+              ctx_contract_balance := amount, ctx_amount := amount }
+            setup with
+        | .Ok state => some state
+        | .Err _ => none
+    | some _ => none
+  else
+    none
+
+theorem deployable_address_candidate_result_some
+    {bstate : @ChainState Base} {wc : @WeakContract Base}
+    {setup : SerializedValue} {act_origin act_from : Base.Address}
+    {amount : Amount} {addr : Base.Address} {state : SerializedValue} :
+    deployable_address_candidate_result bstate wc setup act_origin act_from amount addr =
+      some state →
+    DeployableAddressCandidate bstate wc setup act_origin act_from amount addr state := by
+  intro h
+  unfold deployable_address_candidate_result at h
+  split at h
+  · rename_i hcontract
+    cases hcontracts : bstate.env_contracts addr with
+    | some old =>
+        simp [hcontracts] at h
+    | none =>
+        simp [hcontracts] at h
+        cases hinit :
+            wc_init wc
+              (transfer_balance act_from addr amount bstate.toEnvironment).toChain
+              { ctx_origin := act_origin, ctx_from := act_from,
+                ctx_contract_address := addr,
+                ctx_contract_balance := amount, ctx_amount := amount }
+              setup with
+        | Ok st =>
+            simp [hinit] at h
+            cases h
+            exact ⟨hcontract, hcontracts, hinit⟩
+        | Err err =>
+            simp [hinit] at h
+  · simp at h
+
+theorem deployable_address_candidate_result_none
+    {bstate : @ChainState Base} {wc : @WeakContract Base}
+    {setup : SerializedValue} {act_origin act_from : Base.Address}
+    {amount : Amount} {addr : Base.Address} :
+    deployable_address_candidate_result bstate wc setup act_origin act_from amount addr = none →
+    ¬ ∃ state,
+      DeployableAddressCandidate bstate wc setup act_origin act_from amount addr state := by
+  intro hnone
+  rintro ⟨state, hcontract, hcontracts, hinit⟩
+  unfold deployable_address_candidate_result at hnone
+  simp [hcontract, hcontracts, hinit] at hnone
+
+def find_deployable_address_in
+    (addrs : List Base.Address)
+    (bstate : @ChainState Base) (wc : @WeakContract Base)
+    (setup : SerializedValue) (act_origin act_from : Base.Address)
+    (amount : Amount) : Option (Base.Address × SerializedValue) :=
+  match addrs with
+  | [] => none
+  | addr :: rest =>
+      match deployable_address_candidate_result
+          bstate wc setup act_origin act_from amount addr with
+      | some state => some (addr, state)
+      | none =>
+          find_deployable_address_in rest bstate wc setup act_origin act_from amount
+
+theorem find_deployable_address_in_sound
+    {addrs : List Base.Address}
+    {bstate : @ChainState Base} {wc : @WeakContract Base}
+    {setup : SerializedValue} {act_origin act_from : Base.Address}
+    {amount : Amount} {addr : Base.Address} {state : SerializedValue} :
+    find_deployable_address_in addrs bstate wc setup act_origin act_from amount =
+      some (addr, state) →
+    DeployableAddressCandidate bstate wc setup act_origin act_from amount addr state := by
+  induction addrs with
+  | nil =>
+      intro h
+      simp [find_deployable_address_in] at h
+  | cons hd tl ih =>
+      intro h
+      unfold find_deployable_address_in at h
+      cases hcand :
+          deployable_address_candidate_result bstate wc setup act_origin act_from amount hd with
+      | some st =>
+          have hpair : (hd, st) = (addr, state) := by
+            simpa [hcand] using h
+          have haddr : hd = addr := congrArg Prod.fst hpair
+          have hstate : st = state := congrArg Prod.snd hpair
+          subst addr
+          subst state
+          exact deployable_address_candidate_result_some hcand
+      | none =>
+          simp [hcand] at h
+          exact ih h
+
+theorem find_deployable_address_in_none
+    {addrs : List Base.Address}
+    {bstate : @ChainState Base} {wc : @WeakContract Base}
+    {setup : SerializedValue} {act_origin act_from : Base.Address}
+    {amount : Amount} :
+    find_deployable_address_in addrs bstate wc setup act_origin act_from amount = none →
+    ∀ addr, addr ∈ addrs →
+      ¬ ∃ state,
+        DeployableAddressCandidate bstate wc setup act_origin act_from amount addr state := by
+  induction addrs with
+  | nil =>
+      intro _ addr hin
+      cases hin
+  | cons hd tl ih =>
+      intro hfind addr hin
+      unfold find_deployable_address_in at hfind
+      cases hcand :
+          deployable_address_candidate_result bstate wc setup act_origin act_from amount hd with
+      | some st =>
+          simp [hcand] at hfind
+      | none =>
+          simp [hcand] at hfind
+          cases hin with
+          | head =>
+              exact deployable_address_candidate_result_none hcand
+          | tail _ hmem =>
+              exact ih hfind addr hmem
+
+theorem deployable_address_decidable_of_finite [Finite Base.Address] :
+    DeployableAddressDecidableAssumption (Base := Base) := by
+  intro bstate wc setup act_origin act_from amount _reachable
+  cases hfind :
+      find_deployable_address_in (Finite.elements (T := Base.Address))
+        bstate wc setup act_origin act_from amount with
+  | some pair =>
+      rcases pair with ⟨addr, state⟩
+      left
+      exact ⟨addr, state, find_deployable_address_in_sound hfind⟩
+  | none =>
+      right
+      rintro ⟨addr, state, hcand⟩
+      have hno := find_deployable_address_in_none hfind addr (Finite.elements_all addr)
+      exact hno ⟨state, hcand⟩
 
 private theorem action_evaluation_amount_nonnegative
     {env new_env : @Environment Base} {act : @Action Base}
@@ -425,7 +582,17 @@ theorem action_evaluation_decidable_of_deployable_address_decidable
             simp [act_body_amount] at hnonneg
             exact hamount hnonneg
 
-/-- Compatibility theorem using the inherited upstream deployability axiom. -/
+/-- Axiom-free action-evaluation decidability for finite-address chain bases. -/
+theorem action_evaluation_decidable_of_finite [Finite Base.Address] :
+  ∀ (bstate : @ChainState Base) (act : @Action Base),
+    reachable bstate →
+    (∃ bstate' new_acts, Nonempty (ActionEvaluation bstate.toEnvironment act bstate' new_acts))
+    ∨ ¬ ∃ bstate' new_acts,
+        Nonempty (ActionEvaluation bstate.toEnvironment act bstate' new_acts) :=
+  action_evaluation_decidable_of_deployable_address_decidable
+    (Base := Base) deployable_address_decidable_of_finite
+
+/-- Source-name theorem using the classical deployability decision above. -/
 theorem action_evaluation_decidable :
   ∀ (bstate : @ChainState Base) (act : @Action Base),
     reachable bstate →

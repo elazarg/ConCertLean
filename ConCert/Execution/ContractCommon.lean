@@ -100,25 +100,4 @@ def not_payable {T E : Type}
   | .Ok _ => x
   | .Err e => .Err e
 
-syntax "destruct_throw_if" : tactic
-syntax "destruct_match_some" : tactic
-syntax "contract_simpl" : tactic
-syntax "result_to_option" : tactic
-
-macro_rules
-  | `(tactic| destruct_throw_if) =>
-      `(tactic| unfold throwIf at * <;> split at * <;> simp_all)
-  | `(tactic| destruct_match_some) =>
-      `(tactic| first | casesm* Option _ <;> simp_all | split <;> simp_all)
-  | `(tactic| contract_simpl) =>
-      `(tactic| simp_all [throwIf, without_actions, not_payable, maybe,
-        ConCert.Execution.ResultMonad.Result.bind,
-        ConCert.Execution.ResultMonad.option_of_result,
-        ConCert.Execution.ResultMonad.result_of_option,
-        ConCert.Execution.ResultMonad.isOk,
-        ConCert.Execution.ResultMonad.isErr])
-  | `(tactic| result_to_option) =>
-      `(tactic| simp_all [ConCert.Execution.ResultMonad.option_of_result,
-        ConCert.Execution.ResultMonad.result_of_option])
-
 end ConCert.Execution.ContractCommon

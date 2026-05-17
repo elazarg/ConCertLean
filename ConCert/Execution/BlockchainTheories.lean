@@ -7,6 +7,7 @@ import ConCert.Execution.Monad
 import ConCert.Execution.ResultMonad
 import ConCert.Execution.Serializable
 import ConCert.Execution.BlockchainBase
+import ConCert.Utils.Extras
 
 namespace ConCert.Execution.BlockchainTheories
 
@@ -984,14 +985,14 @@ theorem incoming_txs_contract :
 theorem account_balance_trace :
   ∀ (state : @ChainState Base) (trace : ChainTrace empty_state state) (addr : Base.Address),
     state.env_account_balances addr =
-      ConCert.Utils.Extras.sumZ (fun tx => tx.tx_amount) (incoming_txs trace addr)
-      + ConCert.Utils.Extras.sumZ (fun b => b.block_reward) (created_blocks trace addr)
-      - ConCert.Utils.Extras.sumZ (fun tx => tx.tx_amount) (outgoing_txs trace addr) := by
+      ((incoming_txs trace addr).map (fun tx => tx.tx_amount)).sum
+      + ((created_blocks trace addr).map (fun b => b.block_reward)).sum
+      - ((outgoing_txs trace addr).map (fun tx => tx.tx_amount)).sum := by
   intro state trace addr
   induction trace with
   | clnil =>
       simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
-        ConCert.Utils.Extras.sumZ, empty_state]
+        empty_state]
   | @snoc mid _ tail step ih =>
       cases step with
       | step_block hdr _ _ _ _ henv =>
@@ -1002,7 +1003,7 @@ theorem account_balance_trace :
               rw [Address.address_eq_sym]
               exact hcreator
             simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
-              step_txs, step_blocks, ConCert.Utils.Extras.sumZ, hcreator, hcreator_sym, ih]
+              step_txs, step_blocks, hcreator, hcreator_sym, ih]
             ring_nf
           · have hcreator_sym : Base.address_eqb hdr.block_creator addr = false := by
               rw [Address.address_eq_sym]
@@ -1027,7 +1028,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
                 · have hfrom_sym : Base.address_eqb addr from_addr = false := by
@@ -1038,7 +1038,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
               · have hto_sym : Base.address_eqb addr to_addr = false := by
@@ -1053,7 +1052,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
                 · have hfrom_sym : Base.address_eqb addr from_addr = false := by
@@ -1078,7 +1076,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
                 · have hfrom_sym : Base.address_eqb addr from_addr = false := by
@@ -1089,7 +1086,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
               · have hto_sym : Base.address_eqb addr to_addr = false := by
@@ -1104,7 +1100,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
                 · have hfrom_sym : Base.address_eqb addr from_addr = false := by
@@ -1129,7 +1124,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
                 · have hfrom_sym : Base.address_eqb addr from_addr = false := by
@@ -1140,7 +1134,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
               · have hto_sym : Base.address_eqb addr to_addr = false := by
@@ -1155,7 +1148,6 @@ theorem account_balance_trace :
                   simp [incoming_txs, outgoing_txs, created_blocks, trace_txs, trace_blocks,
                     step_txs, step_blocks, eval_tx, ActionEvaluation.eval_to,
                     ActionEvaluation.eval_from, ActionEvaluation.eval_amount,
-                    ConCert.Utils.Extras.sumZ,
                     hto, hto_sym, hfrom, hfrom_sym]
                   ring_nf
                 · have hfrom_sym : Base.address_eqb addr from_addr = false := by
@@ -1213,7 +1205,7 @@ theorem undeployed_contract_balance_0 :
   rw [undeployed_contract_no_in_txs addr trace his_contract hnone]
   rw [undeployed_contract_no_out_txs addr trace his_contract hnone]
   rw [contract_no_created_blocks state addr trace his_contract]
-  simp [ConCert.Utils.Extras.sumZ]
+  simp
 
 theorem account_balance_nonnegative
     (state : @ChainState Base) (addr : Base.Address) (h : reachable state) :

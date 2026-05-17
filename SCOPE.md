@@ -1,295 +1,339 @@
-# Port scope
+# Port Scope
 
-This document records the deliberate scope boundaries for the ConCert to Lean 4
-port. The current project is a buildable Lean port of the executable ConCert
-core, not a full port of every subproject and example in the parent Rocq
-repository.
+ConCertLean is a Lean 4 port of the executable smart-contract framework from
+ConCert's Rocq sources. The port is centered on executable definitions,
+local-chain testing, and the application-level proofs that use the executable
+framework.
 
-## Current state
+The project has no `sorry`, no `admit`, and no project-specific Lean axioms.
+Lean and mathlib foundational axioms such as `propext`, `Classical.choice`, and
+`Quot.sound` are not counted as ConCert port debt.
+
+## Included Surface
 
 - The retained `utils/theories`, `execution/theories`, and `execution/test`
-  Rocq files have Lean module counterparts.
-- The port builds with `lake build`, and `lake test` runs a small executable
-  smoke-test target.
-- There are no `sorry` or `admit` placeholders in the Lean sources.
-- The only project-specific Lean axiom is
-  `ConCert.Execution.BlockchainBuilder.BuildUtils.deployable_address_decidable`.
-  This mirrors an upstream Rocq `Axiom`; it is not newly introduced proof debt.
-- Counter, Escrow, and PiggyBank executable contracts are included. Counter
-  safety and Escrow functional correctness are proved in Lean.
+  sources have Lean module counterparts.
+- The executable example families included are BAT, BoardroomVoting, CIS1,
+  Counter, Crowdfunding, Congress, Escrow, PiggyBank, StackInterpreter, EIP20,
+  iTokenBuggy, FA1.2, FA2, Dexter, Dexter2, and ExchangeBuggy.
+- The included proof surface covers Counter safety, Escrow correctness,
+  Congress action-depth correctness, BoardroomVoting trace correctness, BAT
+  original/fixed/alt-fixed invariants, Dexter2 FA1.2 and CPMM handler
+  correctness, CIS1 balance preservation, PiggyBank reachability safety, EIP20
+  supply/balance invariants, and FA1.2 supply/balance invariants.
+- `lake build` builds the library, and `lake test` runs the executable generated
+  property tests.
 
-Lean foundational axioms used through mathlib and Lean's libraries, such as
-`propext`, quotient soundness, and classical choice, are not counted as ConCert
-port debt.
+## Out Of Scope
 
-This is not a promise of byte-for-byte serialization compatibility, exact tactic
-compatibility, or exact public-name compatibility with every Rocq helper.
+- `embedding/` is not ported. It depends on Rocq/MetaRocq syntax and metatheory.
+  A Lean version would be a separate design around Lean's own syntax,
+  elaborator, or compiler representations.
+- `extraction/` is not ported. It depends on MetaRocq's erased AST. A
+  Lean-native extraction project would need its own IR choice and soundness
+  argument.
+- MetaRocq/deep-embedding Crowdfunding files are not direct ports:
+  `Crowdfunding.v`, `CrowdfundingData.v`, `CrowdfundingDataExt.v`,
+  `CrowdfundingExt.v`, `CrowdfundingCorrect.v`, and
+  `ExecFrameworkIntegration.v`.
+- Example extraction wrappers are not ported, including files named
+  `*Extraction*.v`, `*Extract*.v`, and `*CommonExtract.v`.
+- Exact Ltac script replay and exact QuickChick generation/shrinking behavior
+  are not goals.
+- Lean `String` is not made byte-for-byte identical to Rocq `ascii` strings by
+  default. Rocq-style ASCII serialization is exposed through `AsciiString`.
 
-## Out of scope subprojects
+## Public Names
 
-- **`embedding/`**: the lambda-smart deep embedding is removed.
-  Reason: it depends on Rocq/MetaRocq syntax and metatheory.
-  Feasibility: not a reasonable direct port. A Lean version would be a separate
-  design project, likely targeting Lean's own elaborator/compiler
-  representations.
+Public Lean names follow the Rocq source names where that is reasonable for
+executable definitions, user-facing data types, and advertised theorem
+statements. Lean-generated recursor, projection, deriving, and instance names
+are outside this audit. Intentional public module and namespace deviations are
+listed here; unlisted public-name drift should be fixed or documented.
 
-- **`extraction/`**: the verified extraction pipeline to Liquidity, CameLIGO,
-  Elm, and Rust is removed.
-  Reason: it is built on MetaRocq's erased AST, which has no direct Lean
-  equivalent.
-  Feasibility: not a reasonable direct port. A Lean-native extraction story
-  could be built around compiler IR such as `Lean.Compiler.LCNF`, but that is a
-  separate research/engineering project with new correctness arguments.
+- **Terminal file-module elision.** Lean declarations usually live in the
+  example or library namespace rather than under a repeated final file
+  component. For example, declarations from `examples/counter/Counter.v` live
+  under `ConCert.Examples.Counter`, not
+  `ConCert.Examples.Counter.Counter`. The same convention is used for the main
+  files of Crowdfunding, Escrow, ExchangeBuggy, iTokenBuggy, PiggyBank,
+  StackInterpreter, and core files such as `ConCert.Execution.BoundedN`.
 
-## Retained modules with scoped deviations
+- **Example-family grouping.** Related files with colliding local names are
+  grouped under one family namespace with variant subnamespaces. BAT uses
+  `ConCert.Examples.BAT.Original`, `.Fixed`, and `.AltFix`. CIS1's WCCD token
+  uses `ConCert.Examples.CIS1.WCCD`. Congress's buggy variant uses
+  `ConCert.Examples.Congress.Buggy`. Dexter2 uses
+  `ConCert.Examples.Dexter2.FA12` and `.CPMM`. FA2's executable token uses the
+  main `ConCert.Examples.FA2` namespace.
 
-### Metaprogramming and tactics
+- **Lowercase Rocq type names become Lean type names.** Rocq records and
+  inductives that denote types but are lowercase in the source are PascalCase in
+  Lean. This affects the FA2 interface types `callback`,
+  `transfer_destination`, `transfer`, `balance_of_request`,
+  `balance_of_response`, `balance_of_param`, `total_supply_response`,
+  `total_supply_param`, `token_metadata`, `token_metadata_param`,
+  `operator_tokens`, `operator_param`, `update_operator`,
+  `is_operator_response`, `is_operator_param`, `self_transfer_policy`,
+  `operator_transfer_policy`, `owner_transfer_policy`,
+  `permissions_descriptor`, `transfer_destination_descriptor`,
+  `transfer_descriptor`, `transfer_descriptor_param`, `fa2_token_receiver`,
+  `fa2_token_sender`, and `set_hook_param`.
 
-- **`ConCert.Execution.SerializableDerive`** has a bounded Lean
-  `deriving Serializable` handler.
-  It supports non-indexed structures/inductives with constructors of arity up
-  to 6 and emits the Rocq `Derive Ser` wire shape: a zero-based `Nat`
-  constructor tag plus a right-associated `SerializedValue` payload chain.
-  Indexed, recursive, and larger-arity derivations should still be written by
-  hand or added deliberately when they appear in source ports.
+- **Prefix-heavy CIS1 specification types are shortened inside namespaces.**
+  In `ConCert.Examples.CIS1.Spec`, the Rocq names `receive_hook_params`,
+  `CIS1ReceiverMsg`, `CIS1_transfer_data`, `CIS1_transfer_params`,
+  `CIS1_updateOperator_kind`, `CIS1_updateOperator_update`,
+  `CIS1_updateOperator_params`, `CIS1_balanceOf_query`,
+  `CIS1_balanceOf_params`, `CIS1_entry_points`, `transfer_spec`,
+  `updateOperator_spec`, `balanceOf_callback_type`, and `balanceOf_spec` become
+  `ReceiveHook.Params`, `ReceiveHook.ReceiverMsg`, `Axioms.TransferData`,
+  `Axioms.TransferParams`, `Axioms.UpdateOperatorKind`,
+  `Axioms.UpdateOperatorUpdate`, `Axioms.UpdateOperatorParams`,
+  `Axioms.BalanceOfQuery`, `Axioms.BalanceOfParams`, `Axioms.EntryPoint`,
+  `Axioms.TransferSpec`, `Axioms.UpdateOperatorSpec`,
+  `Axioms.BalanceOfCallbackType`, and `Axioms.BalanceOfSpec`.
 
-- **`ConCert.Utils.Automation`** provides conservative tactic wrappers.
-  Rocq Ltac tactics such as `propify`, `destruct_match`, `perm_simplify`,
-  `tryfalse`, and related names are exposed as Lean tactic macros over native
-  tactics such as `simp_all`, `split`, `constructor`, and `contradiction`.
-  They preserve common call names for proof ports, but scripts still need local
-  adaptation when Ltac search behavior mattered.
+- **Support-file roles are namespace suffixes.** Generator, printer, test, and
+  test-common files use role namespaces under their example family rather than
+  file-module names. This applies to BAT's `.Gens`, `.Printers`, `.Tests`, and
+  `.TestCommon`; BoardroomVoting's `.Tests`; Congress's `.Gens`, `.Printers`,
+  `.Tests`, `.BuggyGens`, `.BuggyPrinters`, `.LocalBlockchainTests`, and the
+  buggy proof namespace `.Buggy`; Dexter's and Dexter2's `.Gens`, `.Printers`,
+  and `.Tests`; EIP20Token's `.Gens`, `.Printers`, and `.Tests`; Escrow's
+  `.Gens`, `.Printers`, `.Tests`, and `.EscrowCorrectness`; ExchangeBuggy's
+  `.Gens`, `.Printers`, and `.Tests`; FA2's `.Gens`, `.Printers`, `.Tests`,
+  and `.TestContracts`; iTokenBuggy's `.Gens`, `.Printers`, and `.Tests`;
+  CIS1's `.Tests`, `.RemoveProperties`, and `.Spec`; and PiggyBank's
+  `.Correctness`.
 
-- **`ConCert.Utils.RecordSet` / `RecordUpdate`** keep the
-  `SetterFromGetter` class plus application helpers and compatibility notation.
-  The MetaRocq `make_setters` generator is not reproduced because Lean has
-  built-in `{ r with field := value }` syntax. Ports can use
-  `r <| getter := v |>` and `r <| getter ::= f |>` when explicit
-  `SetterFromGetter` instances are available.
+- **Correctness files either extend the contract namespace or use a named proof
+  namespace.** EIP20 and FA1.2 local correctness lemmas extend
+  `ConCert.Examples.EIP20.EIP20Token` and `ConCert.Examples.FA1_2`. BAT and
+  Dexter2 correctness files use variant namespaces such as
+  `ConCert.Examples.BAT.FixedCorrect` and
+  `ConCert.Examples.Dexter2.CPMM.Correct`. Escrow and PiggyBank use
+  `ConCert.Examples.Escrow.EscrowCorrectness` and
+  `ConCert.Examples.PiggyBank.Correctness`.
 
-- **Proof-port convenience tactics and notations are intentionally shallow.**
-  `Env` lookup/update notation plus focused wrappers such as
-  `destruct_chain_step`, `contract_simpl`, and `trace_induction` are exposed as
-  Lean `syntax`/`macro_rules` wrappers over native tactics. These preserve
-  common call names for ports, but exact Ltac search behavior is not a good
-  target.
+- **Rocq module functors are flattened into Lean namespaces and typeclasses.**
+  Rocq module names such as `FA12Serializable`, `FA12SInstances`,
+  `FA12Instance`, `WccdTypes`, `WccdView`, and `WccdReceiveSpec` do not appear
+  as separate Lean modules. Their executable definitions and proofs live under
+  `ConCert.Examples.FA1_2` and `ConCert.Examples.CIS1`, with serialization
+  handled by Lean `Serializable` instances.
 
-### Local blockchain tests and generators
+- **Upstream-path import modules preserve source-file layout where definitions
+  are grouped.** Thin modules with the upstream file names are kept for grouped
+  files such as `BATFixed`, `BATAltFix`, `BATFixedTests`, `BATAltFixTests`,
+  `BoardroomVotingTest`, `BoardroomVotingZ`, `CIS1wccd`, `Congress_Buggy`,
+  `Congress_BuggyGens`, `Congress_BuggyPrinters`, and `Congress_BuggyTests`.
+  They import the canonical implementation namespace or grouped test module and
+  do not introduce a second set of definitions.
 
-- **`ConCert.Execution.Test.LocalBlockchain` trace witnesses** are stored as
-  propositional `Nonempty (ChainTrace ...)` witnesses rather than as direct
-  trace data in the executable builder.
-  Reason: the executable builder stays computational, while concrete trace
-  construction remains proof-carrying.
-  Feasibility: replacing the `Nonempty` field with stored trace data is
-  possible: `LocalChainBuilder.lcb_trace` would become the actual
-  `LCTrace`, `add_block_trace` would return that trace directly, and
-  `LocalChainBuilderImpl.builder_trace` would no longer use `Nonempty.some`.
-  This is medium implementation churn with little proof or execution benefit unless
-  downstream tests need executable trace inspection or trace shrinking.
+- **`examples/AllTests.v` maps to two Lean entry points.**
+  `ConCert.Examples.AllTests` is the examples-level aggregate import module.
+  The runnable Lake test driver is repository-root `Tests.lean`.
 
-- **`ConCert.Execution.Test.TraceGens`, `TestUtils`, `TestNotation`, and
-  `ChainPrinters`** are Plausible-backed or deterministic compatibility
-  layers.
-  Reason: the Rocq files are QuickChick generator/checker/printing
-  infrastructure. Full generator and notation parity is not needed for the core
-  proof-porting surface. `TestUtils` includes the common local-chain constants,
-  deterministic address generator wrappers, and checker combinators such as
-  `conjoin_no_discard`, but does not attempt QuickChick shrinking/search
-  parity.
-  Feasibility: adding the common generators, checkers, and printers is
-  reasonable if the parent test suites are ported. Exact QuickChick behavior is
-  not worth treating as a compatibility requirement.
+## Implementation Choices
 
-- **A Lake smoke-test driver is present.**
-  `Tests.lean` checks a small executable surface for serialization,
-  `LocalBlockchain`, proof symbols, and compatibility wrappers. It is not intended
-  to replace broader example-specific or property-based tests.
+- `ConCert.Execution.SerializableDerive` provides a bounded
+  `deriving Serializable` handler for non-indexed structures and inductives
+  with constructors of arity up to 10. It emits the Rocq `Derive Ser` wire
+  shape: a zero-based constructor tag plus a right-associated serialized-value
+  payload chain.
+- `ConCert.Utils.Automation` retains the non-tactic helper lemma used from the
+  Rocq automation file. The Ltac-only tactic layer is not ported unless a
+  Lean proof actually uses the corresponding tactic.
+- `ConCert.Utils.RecordSet` and `ConCert.Utils.RecordUpdate` keep the
+  `SetterFromGetter` class and source-style update notation. The MetaRocq
+  `make_setters` generator is not reproduced because Lean has built-in record
+  update syntax.
+- `FMap` is backed by `Std.ExtTreeMap`, Lean's quotient-extensional ordered tree
+  map, rather than Rocq/stdpp `gmap` with `Countable`.
+- `ChainBase` uses Lean's `DecidableEq`, `Ord`, and `LawfulOrd` structures in
+  place of Rocq's `EqDecision` and `Countable` fields.
+- `Monad` and `MonadLaws` map to Lean's built-in `Monad` and `LawfulMonad`.
+  `MonadTrans` is provided as a thin class in `ConCert.Execution.Monad`.
+- `ConCert.Execution.Test.TraceGens`, `TestUtils`, `TestNotation`, and
+  `ChainPrinters` are Plausible-backed replacements for the QuickChick test
+  layers used by the ported executable tests.
+- `ConCert.Execution.Test.LocalBlockchain` stores concrete trace data in
+  `LocalChainBuilder.lcb_trace`, so generated tests can inspect block/action
+  traces directly.
 
-### Serialization and data representation
+## Serialization
 
-- **`BoundedN` serialization** follows the Rocq/stdpp wire shape.
-  The Lean port has an explicit `Positive` wrapper plus
-  `encode_bounded`/`decode_bounded`; `BoundedN` values serialize through the
-  stdpp-compatible `N` encoding `n ↦ n + 1`.
-
-- **`String` serialization** uses Lean Unicode scalar codepoints.
-  Reason: Lean `String`/`Char` is Unicode-based, while Rocq `string` is a list
-  of `ascii`; the Rocq instance rejects character codes greater than or equal to
-  256.
-  Compatibility path: `ConCert.Execution.SerializableInstances.Ascii` and
-  `AsciiString` provide Rocq-style ASCII serialization while leaving Lean
-  `String` Unicode-native.
-
-- **Core Rocq serialization helper declarations are public Lean names.**
+- `BoundedN` serialization follows the Rocq/stdpp wire shape. `BoundedN` values
+  serialize through the explicit `Positive` wrapper and the stdpp `N` encoding
+  `n -> n + 1`.
+- Lean `String` serialization uses Lean Unicode scalar codepoints.
+  `ConCert.Execution.SerializableInstances.Ascii` and `AsciiString` expose the
+  Rocq-style ASCII serialization surface.
+- Core serialization helper names are public Lean names:
   `serialize_sum`, `deserialize_sum`, `serialize_product`,
   `deserialize_product`, `serialize_list`, `deserialize_list`,
-  `serialize_option`, and their round-trip theorems are exposed. Less common
-  theorem aliases can be added as proof ports discover exact-name needs.
-
-- **Rocq `Derive Ser` constructor-wire helpers are public Lean names.**
+  `serialize_option`, and their round-trip theorems.
+- Rocq `Derive Ser` constructor-wire helpers are public Lean names:
   `serialize_constructor0` through `serialize_constructor6`,
   `deserialize_constructor0` through `deserialize_constructor6`, and their
-  tag-sensitive round-trip lemmas expose the original constructor-tag encoding
-  for handwritten instances and the Lean deriving handler.
+  tag-sensitive round-trip lemmas.
 
-### Architectural substitutions
+## Upstream Corrections
 
-- **`FMap` is backed by `Std.ExtTreeMap`** — Lean's quotient-extensional
-  ordered tree map — rather than Rocq/stdpp `gmap` with `Countable`.
-  `ExtTreeMap` is propositionally extensional (`Std.ExtTreeMap.ext_getElem?`,
-  `toList_inj`): two maps with the same `get?` view are propositionally equal.
-  `Std.TreeMap` was rejected as a backing because it exposes tree shape, so
-  insertion order can yield different propositionally-distinct maps with the
-  same view.
+- `ConCert.Utils.StringExtra.str_map` applies its function argument. The Rocq
+  source body ignores the function argument, so the Lean port implements the
+  intended behavior rather than preserving the no-op.
+- `StepNotPermute.snp_action_invalid` targets `step_action_invalid`. The Rocq
+  `BlockchainBFS.v` constructor appears to target `step_action` by mistake.
+- `BlockchainBFS.v`'s admitted `dfs_contract_induction` is proved over the
+  corrected permutation-free trace predicate.
+- `ContractProperties.v`'s admitted `NonPayable_balance_zero` is proved by
+  carrying the nonnegative-amount invariant required over `Int`.
+- `deployable_address_decidable` is a theorem, not a project axiom. The
+  parameterized form is
+  `BlockchainBuilder.BuildUtils.action_evaluation_decidable_of_deployable_address_decidable`;
+  finite-address chain bases can use
+  `deployable_address_decidable_of_finite` and
+  `action_evaluation_decidable_of_finite`.
 
-- **FMap algebraic facts are proved as propositional equalities.**
-  This includes `add_remove`, `add_add`, `add_commute`, `of_elements_eq`, and
-  serialization round-trip facts.
+## Axiom Footprint
 
-- **`ChainBase` uses Lean equality/order structures**:
-  `DecidableEq`, `Ord`, and `LawfulOrd` replace Rocq's `EqDecision` and
-  `Countable` fields.
-  Feasibility: Rocq-style compatibility wrappers can be added if a proof port
-  needs to unfold those original typeclass structures.
+The advertised theorem surface depends only on Lean/mathlib foundational axioms:
+`propext`, `Classical.choice`, and `Quot.sound`, or subsets of those. The
+following theorem groups are included in that footprint.
 
-- **`Monad`/`MonadLaws` map to Lean's built-in `Monad`/`LawfulMonad`**;
-  `MonadTrans` is provided as a thin class in
-  `ConCert.Execution.Monad`. All four `ContractMonads` `MonadTrans` instances
-  (`reader→initer`, `result→initer`, `reader→receiver`, `result→receiver`) are
-  present.
+Core results:
 
-## Upstream corrections and proved upstream gaps
+- `ConCert.Examples.Counter.counter_safe`
+- `ConCert.Examples.Counter.counter_correct`
+- `ConCert.Examples.Escrow.EscrowCorrectness.escrow_correct_strong`
+- `ConCert.Examples.Escrow.EscrowCorrectness.escrow_correct`
+- `ConCert.Execution.BlockchainBFS.dfs_contract_induction`
+- `ConCert.Execution.ContractProperties.NonPayable_balance_zero`
+- `ConCert.Execution.BlockchainBuilder.BuildUtils.{action_evaluation_decidable,
+  action_evaluation_decidable_of_deployable_address_decidable,
+  deployable_address_decidable_of_finite,
+  action_evaluation_decidable_of_finite}`
 
-- **`ConCert.Utils.StringExtra.str_map` applies its function argument.**
-  The Rocq source's `str_map` body ignores the function argument, so operations
-  built from it, such as upper/lower casing, cannot have the intended behavior.
-  The Lean port fixes this rather than preserving the no-op behavior.
+Headline example results:
 
-- **`StepNotPermute.snp_action_invalid` targets `step_action_invalid`.**
-  The Rocq `BlockchainBFS.v` constructor appears to target `step_action` by
-  mistake. The Lean port corrects it to the invalid-action step.
+- `ConCert.Examples.Congress.{congress_correct,
+  congress_correct_after_block}`
+- `ConCert.Examples.Congress.Buggy.do_finish_proposal_violates_action_conservation`
+- `ConCert.Examples.BoardroomVoting.{boardroom_voting_core_correct_strong,
+  boardroom_voting_correct, boardroom_voting_correct_strong}`
+- `ConCert.Examples.BAT.Correct.{constants_are_constant, final_is_final,
+  receive_total_supply_increasing}`
+- `ConCert.Examples.BAT.FixedCorrect.{constants_are_constant, final_is_final,
+  receive_total_supply_increasing}`
+- `ConCert.Examples.BAT.AltFixCorrect.{constants_are_constant, final_is_final,
+  receive_total_supply_increasing}`
 
-- **The upstream `BlockchainBFS.v` `dfs_contract_induction` admit is proved.**
-  The Lean proof works over the corrected permutation-free trace predicate and
-  uses `DFSContractInductionCases`, a bundled version of the Rocq premises that
-  omits the permutation case.
+Local correctness families:
 
-- **The upstream `ContractProperties.v` `NonPayable_balance_zero` admit is
-  proved.**
-  The proof needs the nonnegative-amount invariant supplied by the blockchain
-  semantics: from `NonPayable` and a successful init/receive one gets
-  `¬ ctx_amount > 0`; over `Int`, concluding `ctx_amount = 0` also requires
-  `ctx_amount ≥ 0`. The Lean proof carries that fact through the induction.
+- `ConCert.Examples.EIP20.EIP20Token.{receive_not_payable, receive_no_acts,
+  try_transfer_balance_correct, try_transfer_from_balance_correct,
+  try_approve_allowance_correct, try_approve_preserves_balances_sum,
+  try_transfer_preserves_balances_sum,
+  try_transfer_from_preserves_balances_sum, total_supply_eq_init_supply,
+  sum_balances_eq_total_supply, outgoing_acts_nil}`
+- `ConCert.Examples.FA1_2.{contract_not_payable,
+  try_transfer_balance_correct, try_transfer_allowance_correct,
+  try_transfer_new_acts_correct, try_transfer_preserves_total_supply,
+  try_transfer_preserves_balances_sum, try_transfer_is_some,
+  try_approve_new_acts_correct, try_approve_preserves_total_supply,
+  try_approve_preserves_balances_sum, try_approve_allowance_correct,
+  try_approve_is_some, try_get_allowance_new_acts_correct,
+  try_get_balance_new_acts_correct, try_get_total_supply_new_acts_correct,
+  init_total_supply_correct, total_supply_correct,
+  sum_balances_eq_total_supply, token_balance_le_total_supply,
+  zero_balances_removed, zero_allowances_removed}`
+- `ConCert.Examples.PiggyBank.Correctness.{receive_is_correct,
+  receive_produces_no_calls_when_running_insert, owner_remains,
+  owner_correct, no_self_calls, balance_on_chain', balance_on_chain,
+  balance_on_pos, no_outgoing_actions_when_intact,
+  state_balance_zero_when_smashed, balance_is_zero_when_smashed',
+  balance_is_zero_when_smashed, stay_smashed,
+  if_intact_then_balance_can_only_increase, initializes_correctly}`
+- `ConCert.Examples.Dexter2.FA12.Correct.{try_transfer_balance_correct,
+  try_transfer_allowance_correct, try_approve_allowance_correct,
+  try_mint_or_burn_total_supply_correct, init_total_supply_correct}`
+- `ConCert.Examples.Dexter2.CPMM.Correct.{add_liquidity_correct,
+  xtz_to_token_correct, token_to_xtz_correct, token_to_token_correct,
+  remove_liquidity_correct, init_correct}`
+- `ConCert.Examples.CIS1.Spec.Operators.{compose_updateOperator_add_add,
+  compose_updateOperator_add_remove_same,
+  compose_updateOperator_remove_one_remove_another}`
+- `ConCert.Examples.CIS1.Spec.Balances.{transfer_preserves_sum_of_balances,
+  balanceOf_preserves_sum_of_balances,
+  updateOperator_preserves_sum_of_balances}`
 
-- **`deployable_address_decidable` remains an inherited axiom.**
-  This is not provable from the current generic `ChainBase`; it assumes a
-  decidable search for some fresh deployable contract address. The required
-  assumption is factored as
-  `BlockchainBuilder.BuildUtils.DeployableAddressDecidableAssumption`, and the
-  main decidability proof is also available in a parameterized form,
-  `action_evaluation_decidable_of_deployable_address_decidable`. The axiom-backed
-  `action_evaluation_decidable` theorem remains for compatibility. The axiom
-  can be eliminated for concrete chain bases, or generically after strengthening
-  `ChainBase` with an explicit fresh-address/search assumption.
+The smaller footprints are:
 
-## Axiom audit
+- `propext` only:
+  `ConCert.Examples.Dexter2.CPMM.Correct.init_correct`,
+  `ConCert.Examples.CIS1.Spec.Operators.{compose_updateOperator_add_add,
+  compose_updateOperator_add_remove_same,
+  compose_updateOperator_remove_one_remove_another}`,
+  `ConCert.Examples.PiggyBank.Correctness.{receive_is_correct,
+  receive_produces_no_calls_when_running_insert, owner_remains, stay_smashed,
+  initializes_correctly}`, and
+  `ConCert.Execution.BlockchainBuilder.BuildUtils.{action_evaluation_decidable_of_deployable_address_decidable,
+  deployable_address_decidable_of_finite,
+  action_evaluation_decidable_of_finite}`.
+- `propext` and `Quot.sound`:
+  `ConCert.Examples.CIS1.Spec.Balances.{balanceOf_preserves_sum_of_balances,
+  updateOperator_preserves_sum_of_balances}`.
 
-`#print axioms` reports that the main proved results advertised by this port
-use only Lean/mathlib foundational axioms (`propext`, `Classical.choice`, and
-`Quot.sound`):
+The BoardroomVoting trace theorem is parameterized by the explicit
+`BoardroomVotingProtocolCorrect` assumption. That parameter packages the
+cryptographic and brute-force tally facts expected by the executable
+Z-specialized contract; it is part of the theorem statement, not a Lean axiom.
 
-- `Counter.counter_safe`
-- `EscrowCorrectness.escrow_correct`
-- `BlockchainBFS.dfs_contract_induction`
-- `ContractProperties.NonPayable_balance_zero`
+There is no Lean theorem literally named `piggybank_correct`; the PiggyBank
+proof surface keeps the upstream theorem names that exist in
+`PiggyBankCorrect.v`, headed by `receive_is_correct` and the reachability
+safety lemmas above.
 
-The compatibility theorem `BlockchainBuilder.BuildUtils.action_evaluation_decidable`
-also depends on the inherited project axiom
-`deployable_address_decidable`. Its parameterized variant,
-`action_evaluation_decidable_of_deployable_address_decidable`, depends only on
-the explicit deployable-address assumption supplied as an argument, plus
-standard Lean/mathlib axioms.
+## Example Coverage
 
-## Induction principles
+- **BAT** ports `BATCommon.v`, `BAT.v`, `BATFixed.v`, `BATAltFix.v`, the three
+  correctness files, and the generator/printer/test-common files over the
+  local-chain backend.
+- **BoardroomVoting** ports the executable `BoardroomVotingZ.v` contract, the
+  Egcd/Euler/BoardroomMath pieces needed by the executable contract, tests, and
+  the trace-level correctness theorem under `BoardroomVotingProtocolCorrect`.
+- **CIS1** ports the WCCD token, list-removal utilities, abstract specification
+  records, and generic operator-update and balance-sum preservation proofs.
+- **Congress** ports the executable contract, the buggy variant and exploit
+  contract, local-chain tests, generators/printers, and the action-depth
+  correctness theorems.
+- **Counter, Escrow, and PiggyBank** include executable code and their retained
+  safety/correctness proofs. PiggyBank omits only the upstream admitted
+  `smash_poss` exploit-construction tail.
+- **EIP20 and iTokenBuggy** include executable code, generated tests, and EIP20
+  local plus chain-level supply/balance preservation proofs. The iTokenBuggy
+  self-transfer inflation behavior is preserved and tested as a bug witness.
+- **FA1.2** includes executable code, generated tests, and local plus
+  chain-level supply/balance correctness lemmas.
+- **FA2** includes the interface files, executable token, test contracts,
+  generated tests, generators, and printers.
+- **Dexter and Dexter2** include executable contracts and generated tests.
+  Dexter2 includes the FA1.2 liquidity token and CPMM local handler/init
+  correctness files.
+- **Crowdfunding** is a shallow executable counterpart of the MetaRocq-based
+  upstream example. The deep embedding, extraction wrappers, and reachability
+  proofs are out of scope.
+- **ExchangeBuggy and StackInterpreter** include executable code and retained
+  test coverage.
 
-- **`contract_induction` and `dfs_contract_induction` bundle case premises in
-  records.**
-  `ContractInductionCases` and `DFSContractInductionCases` keep the Lean
-  theorem statements usable while preserving the same case obligations.
-  Flat constructor aliases `contract_induction_cases` and
-  `dfs_contract_induction_cases` expose the same case premises positionally for
-  proof ports that do not need a separate theorem wrapper.
+## Guarantees
 
-- **`nonrecursive_contract_induction` uses
-  `NonRecursiveContractInductionCases`.**
-  The Rocq nonrecursive theorem omits the recursive-call case. The Lean record
-  mirrors that shape. The flat constructor alias
-  `nonrecursive_contract_induction_cases` exposes those premises positionally.
-
-## Examples
-
-- **Counter, Escrow, and PiggyBank executable contracts are included.**
-  Their serializer instances use the Rocq `Derive Ser` constructor-tag wire
-  shape, and the serializer round-trip obligations are theorem proofs.
-
-- **Counter safety and Escrow correctness are included.**
-  `Counter.counter_safe`, `EscrowCorrectness.escrow_correct_strong`, and
-  `EscrowCorrectness.escrow_correct` are proved in Lean.
-
-- **PiggyBank is execution-only.**
-  `examples/piggybank/PiggyBank.v` is ported, but
-  `PiggyBankCorrect.v` is not included.
-
-- **Most parent examples remain out of scope.**
-  Feasibility varies. Examples that primarily depend on the execution layer are
-  reasonable to port one at a time. Examples that depend heavily on the removed
-  extraction or embedding subprojects, generated QuickChick infrastructure, or
-  substantial external mathematics are larger projects.
-
-## Reasonable future work
-
-These omissions are practical next steps, roughly sorted by value per unit of
-implementation/proof effort:
-
-- Add exact-name theorem aliases where downstream ports depend on Rocq names.
-- Add more proof-port notations and tactic wrappers only when downstream proof
-  ports need them.
-- Add full flat theorem wrappers for `contract_induction`,
-  `nonrecursive_contract_induction`, and `dfs_contract_induction` only if a
-  proof port needs exact theorem names or exact Rocq premise order beyond the
-  existing constructor aliases.
-- Discharge `deployable_address_decidable` for concrete chain bases, using the
-  explicit `DeployableAddressDecidableAssumption` shape as the proof target.
-- Port additional execution-only examples incrementally.
-- Expand Plausible-backed generators/checkers enough to port selected tests.
-- Replace `LocalBlockchain`'s `Nonempty` trace storage with explicit trace data
-  only if selected tests need executable trace inspection or trace shrinking.
-
-These omissions are not reasonable as direct compatibility work:
-
-- Directly porting MetaRocq-based `embedding/`.
-- Directly porting the MetaRocq erased-AST extraction pipeline.
-- Reproducing exact Ltac search behavior.
-- Reproducing exact QuickChick generation/shrinking behavior.
-- Making Lean `String` byte-for-byte identical to Rocq `ascii` strings by
-  default; use `AsciiString` for that compatibility surface instead.
-
-## In-scope guarantees
-
+- Definitions intended to execute have Lean bodies.
+- Included theorem statements are proved.
 - The retained core source files have Lean module counterparts, subject to the
-  deviations above.
-- Definitions intended to execute have real Lean bodies.
-- Included theorem statements are proved, except for the inherited
-  `deployable_address_decidable` axiom.
-- The port should build with `lake build`; smoke checks should pass with
+  public-name and implementation choices recorded above.
+- Public-name deviations are limited to the cases documented in this file.
+- The project builds with `lake build`, and the executable test suite runs with
   `lake test`.
-
-## Not guaranteed
-
-- Exact tactic compatibility with Rocq proofs.
-- Exact public declaration names for every helper definition and lemma.
-- Byte-for-byte compatibility with Rocq serialization formats unless explicitly
-  stated.
-- Full example, embedding, extraction, or QuickChick test parity with the parent
-  repository.

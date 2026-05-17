@@ -251,17 +251,6 @@ theorem NonPayable_weaken
     (contract : Contract Setup Msg State Error)
     (h : NonPayable contract) : NonPayableWeak contract := h.1
 
-omit Base in
-private theorem sumZ_eq_zero_of_forall_zero {A : Type} (f : A → Int) :
-    ∀ xs : List A, xs.Forall (fun x => f x = 0) →
-      ConCert.Utils.Extras.sumZ f xs = 0
-  | [], _ => rfl
-  | _ :: xs, h => by
-      simp only [ConCert.Utils.Extras.sumZ]
-      simp only [List.forall_cons] at h
-      rw [h.1, sumZ_eq_zero_of_forall_zero f xs h.2]
-      simp
-
 private theorem trace_txs_amount_nonnegative :
     ∀ {frm to_ : @ChainState Base} (trace : ChainTrace frm to_),
       ∀ tx, tx ∈ trace_txs trace → tx.tx_amount ≥ 0 := by
@@ -386,47 +375,66 @@ theorem NonPayable_balance_zero :
   have hincoming_map :=
     incoming_txs_contract caddr bstate trace Setup dep Msg inc_calls hdep hinc
   have hincoming_sum :
-      ConCert.Utils.Extras.sumZ (fun tx : @Tx Base => tx.tx_amount)
-        (incoming_txs trace caddr) = 0 := by
-    rw [← ConCert.Utils.Extras.sumZ_map
-      (fun tx : @Tx Base => (tx.tx_from, tx.tx_to, tx.tx_amount))
-      (fun p : Base.Address × Base.Address × Amount => p.2.2)
-      (incoming_txs trace caddr)]
-    rw [hincoming_map, ConCert.Utils.Extras.sumZ_app]
-    rw [ConCert.Utils.Extras.sumZ_map]
+      ((incoming_txs trace caddr).map (fun tx : @Tx Base => tx.tx_amount)).sum = 0 := by
+    rw [show
+      (incoming_txs trace caddr).map (fun tx : @Tx Base => tx.tx_amount) =
+        ((incoming_txs trace caddr).map
+          (fun tx : @Tx Base => (tx.tx_from, tx.tx_to, tx.tx_amount))).map
+          (fun p : Base.Address × Base.Address × Amount => p.2.2) by
+      simp [List.map_map]]
+    rw [hincoming_map]
     have hcalls :
-        ConCert.Utils.Extras.sumZ
-          (fun call : @ContractCallInfo Base Msg => call.call_amount)
-          inc_calls = 0 :=
-      sumZ_eq_zero_of_forall_zero
-        (fun call : @ContractCallInfo Base Msg => call.call_amount)
-        inc_calls hP.2
-    simp [ConCert.Utils.Extras.sumZ, hcalls, hP.1]
+        (inc_calls.map (fun call : @ContractCallInfo Base Msg => call.call_amount)).sum = 0 :=
+      by
+        have hforall := hP.2
+        clear hP hinc hincoming_map
+        revert hforall
+        induction inc_calls with
+        | nil =>
+            intro _
+            rfl
+        | cons call calls ih =>
+            intro hforall
+            simp only [List.forall_cons] at hforall
+            simp [hforall.1, ih hforall.2]
+    simpa [List.map_map, hP.1] using hcalls
   have hcreated :
       created_blocks trace caddr = [] :=
     contract_no_created_blocks bstate caddr trace
       (deployment_info_addr_format Setup trace caddr dep hdep)
   have houtgoing_nonneg :
-      0 ≤ ConCert.Utils.Extras.sumZ (fun tx : @Tx Base => tx.tx_amount)
-        (outgoing_txs trace caddr) :=
-    ConCert.Utils.Extras.sumZ_nonnegative
-      (fun tx : @Tx Base => tx.tx_amount)
-      (outgoing_txs trace caddr)
-      (outgoing_txs_amount_nonnegative trace caddr)
+      0 ≤ ((outgoing_txs trace caddr).map (fun tx : @Tx Base => tx.tx_amount)).sum :=
+    by
+      let txs := outgoing_txs trace caddr
+      have htxs : ∀ tx, tx ∈ txs → 0 ≤ tx.tx_amount := by
+        intro tx hmem
+        exact outgoing_txs_amount_nonnegative trace caddr tx (by simpa [txs] using hmem)
+      change 0 ≤ (txs.map (fun tx : @Tx Base => tx.tx_amount)).sum
+      revert htxs
+      induction txs with
+      | nil =>
+          intro _
+          exact Int.le_refl _
+      | cons tx txs ih =>
+          intro htxs
+          have hhead : 0 ≤ tx.tx_amount := htxs tx List.mem_cons_self
+          have htail : 0 ≤ (txs.map (fun tx : @Tx Base => tx.tx_amount)).sum :=
+            ih (fun x hx => htxs x (List.mem_cons_of_mem _ hx))
+          simp only [List.map_cons, List.sum_cons]
+          linarith
   have hbalance_nonneg : bstate.env_account_balances caddr ≥ 0 :=
     account_balance_nonnegative bstate caddr ⟨trace⟩
   rw [account_balance_trace bstate trace caddr] at hbalance_nonneg
   rw [hincoming_sum, hcreated] at hbalance_nonneg
-  simp [ConCert.Utils.Extras.sumZ] at hbalance_nonneg
+  simp at hbalance_nonneg
   have houtgoing_zero :
-      ConCert.Utils.Extras.sumZ (fun tx : @Tx Base => tx.tx_amount)
-        (outgoing_txs trace caddr) = 0 := by
+      ((outgoing_txs trace caddr).map (fun tx : @Tx Base => tx.tx_amount)).sum = 0 := by
     apply le_antisymm
     · exact hbalance_nonneg
     · exact houtgoing_nonneg
   rw [account_balance_trace bstate trace caddr]
   rw [hincoming_sum, hcreated, houtgoing_zero]
-  simp [ConCert.Utils.Extras.sumZ]
+  simp
 
 def Payable
     {Setup Msg State Error : Type}

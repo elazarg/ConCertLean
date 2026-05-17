@@ -1,8 +1,7 @@
 /- Port of execution/test/TestUtils.v.
 
-   Minimal Plausible-based compatibility layer. The original is hundreds of
-   QuickChick-specific helpers; this module keeps the surface needed by the
-   ported test files. -/
+   Plausible-backed replacement for the QuickChick-specific helpers used by
+   the ported test files. -/
 
 import Plausible.Gen
 import Plausible.Sampleable
@@ -48,13 +47,141 @@ abbrev Checker := Plausible.Gen Bool
 @[inline] def repeatn (n : Nat) (c : Checker) : Checker :=
   conjoin ((List.range n).map (fun _ => c))
 
+structure CheckerConfig where
+  numTests : Nat := 100
+  maxSize : Nat := 25
+  seed : Nat := 0
+  deriving Repr
+
+def defaultCheckerConfig : CheckerConfig := {}
+
+def strictCheckerConfig : CheckerConfig :=
+  { numTests := 200, maxSize := 50, seed := 20260514 }
+
+structure CheckerFailure where
+  sample : Nat
+  size : Nat
+  seed : Nat
+  deriving Repr
+
+structure ShrinkFailure where
+  sample : Nat
+  size : Nat
+  seed : Nat
+  shrinks : Nat
+  counterexample : String
+  deriving Repr
+
+def checkerSampleSize (cfg : CheckerConfig) (sample : Nat) : Nat :=
+  if cfg.numTests ≤ 1 then cfg.maxSize
+  else sample * cfg.maxSize / (cfg.numTests - 1)
+
+def runGenWithSeed {A : Type} (seed size : Nat) (g : G A) : IO A := do
+  match (Plausible.runRandWith seed g).run ⟨size⟩ with
+  | .ok a => pure a
+  | .error (.genError msg) =>
+      throw (IO.userError s!"generation failed at seed {seed}, size {size}: {msg}")
+
+def runChecker (cfg : CheckerConfig) (c : Checker) : IO (Option CheckerFailure) := do
+  if cfg.numTests = 0 then
+    throw (IO.userError "checker configuration must run at least one sample")
+  for sample in [0:cfg.numTests] do
+    let size := checkerSampleSize cfg sample
+    let seed := cfg.seed + sample
+    let ok ← runGenWithSeed seed size c
+    if !ok then
+      return some { sample, size, seed }
+  return none
+
+def assertChecker (name : String) (cfg : CheckerConfig) (c : Checker) : IO Unit := do
+  match ← runChecker cfg c with
+  | none => pure ()
+  | some failure =>
+      throw (IO.userError
+        s!"{name}: property falsified at sample {failure.sample}, size {failure.size}, seed {failure.seed}")
+
+def assertCheckerFails (name : String) (cfg : CheckerConfig) (c : Checker) : IO Unit := do
+  match ← runChecker cfg c with
+  | some _ => pure ()
+  | none =>
+      throw (IO.userError
+        s!"{name}: expected a generated counterexample, but all {cfg.numTests} samples passed")
+
+def shrinkCounterexample {A : Type}
+    (shrink : A → List A) (p : A → Bool) : Nat → A → A × Nat
+  | 0, a => (a, 0)
+  | fuel + 1, a =>
+      match (shrink a).find? (fun a' => !(p a')) with
+      | none => (a, 0)
+      | some a' =>
+          let (best, shrinks) := shrinkCounterexample shrink p fuel a'
+          (best, shrinks + 1)
+
+def runShrinkChecker {A : Type}
+    (cfg : CheckerConfig) (g : G A) (shrink : A → List A)
+    (showA : A → String) (p : A → Bool) : IO (Option ShrinkFailure) := do
+  if cfg.numTests = 0 then
+    throw (IO.userError "checker configuration must run at least one sample")
+  for sample in [0:cfg.numTests] do
+    let size := checkerSampleSize cfg sample
+    let seed := cfg.seed + sample
+    let a ← runGenWithSeed seed size g
+    if !(p a) then
+      let (small, shrinks) := shrinkCounterexample shrink p cfg.maxSize a
+      return some
+        { sample, size, seed, shrinks, counterexample := showA small }
+  return none
+
+def assertForAllShrink {A : Type}
+    (name : String) (cfg : CheckerConfig) (g : G A) (shrink : A → List A)
+    (showA : A → String) (p : A → Bool) : IO Unit := do
+  match ← runShrinkChecker cfg g shrink showA p with
+  | none => pure ()
+  | some failure =>
+      throw (IO.userError
+        s!"{name}: property falsified at sample {failure.sample}, size {failure.size}, seed {failure.seed}; shrunk {failure.shrinks} times to {failure.counterexample}")
+
+def assertForAllShrinkFails {A : Type}
+    (name : String) (cfg : CheckerConfig) (g : G A) (shrink : A → List A)
+    (showA : A → String) (p : A → Bool) : IO Unit := do
+  match ← runShrinkChecker cfg g shrink showA p with
+  | some _ => pure ()
+  | none =>
+      throw (IO.userError
+        s!"{name}: expected a generated counterexample, but all {cfg.numTests} samples passed")
+
+def shrinkNat : Nat → List Nat
+  | 0 => []
+  | n => [n / 2, 0].eraseDups
+
+def shrinkInt (i : Int) : List Int :=
+  if i = 0 then [] else [i / 2, 0]
+
+def forAllGen {A : Type} (g : G A) (p : A → Bool) : Checker := do
+  let a ← g
+  checker (p a)
+
+def chooseNatBetween (lo hi : Nat) (h : lo ≤ hi) : G Nat := do
+  let n ← Plausible.Gen.choose Nat lo hi h
+  return n.val
+
+def chooseIntBetween (lo hi : Int) (h : lo ≤ hi) : G Int := do
+  let n ← Plausible.Gen.choose Int lo hi h
+  return n.val
+
+def chooseAmountBetween (lo hi : Amount) (h : lo ≤ hi) : G Amount :=
+  chooseIntBetween lo hi h
+
+def chooseBool : G Bool :=
+  Plausible.Gen.chooseAny Bool
+
 /-! Configuration constants. -/
 
 def AddrSize : Nat := 256
 def ContractAddrBase : Nat := 128
 def DepthFirst : Bool := true
 
-/-! Compatibility helpers over an arbitrary `Base : ChainBase`. Concrete
+/-! Test helpers over an arbitrary `Base : ChainBase`. Concrete
     blockchain operations (`build_call`, `build_transfer`, `build_deploy`) are
     real definitions over the proper `Action` / `ActionBody` types. -/
 
@@ -197,7 +324,9 @@ def backtrack_result {T E : Type} (default : E)
 
 def elems_opt {A : Type} (l : List A) : GOpt A :=
   match l with
-  | x :: _ => returnGen (some x)
+  | x :: xs => (do
+      let a ← Plausible.Gen.elements (x :: xs) (by simp)
+      return some a : Plausible.Gen (Option A))
   | [] => returnGen none
 
 def returnGenSome {A : Type} (a : A) : GOpt A := (pure (some a) : Plausible.Gen _)
@@ -232,17 +361,22 @@ def sample2UniqueFMapOpt {A B : Type} [Ord A] [LawfulOrd A] (m : FMap A B) :
       returnGenSome (p1, p2)))
 
 def gBoundedNOpt (bound : Nat) : GOpt (ConCert.Execution.BoundedN bound) :=
-  match ConCert.Execution.BoundedN.of_N (bound := bound) 0 with
-  | some addr => returnGenSome addr
-  | none => returnGen none
+  if h : 0 < bound then (do
+    let n ← Plausible.Gen.choose Nat 0 (bound - 1) (by omega)
+    return some ⟨n.val, by have hn := n.property.2; omega⟩ :
+      Plausible.Gen (Option (ConCert.Execution.BoundedN bound)))
+  else
+    returnGen none
 
-def gBoundedN : G (ConCert.Execution.BoundedN AddrSize) :=
-  returnGen localDefaultAddress
+def gBoundedN : G (ConCert.Execution.BoundedN AddrSize) := do
+  match ← gBoundedNOpt AddrSize with
+  | some addr => return addr
+  | none => return localDefaultAddress
 
 def gAddress_ (default : Base.Address) (addrs : List Base.Address) : G Base.Address :=
   match addrs with
   | [] => returnGen default
-  | addr :: _ => returnGen addr
+  | addr :: rest => Plausible.Gen.elements (addr :: rest) (by simp)
 
 def gAddress (addrs : List Base.Address) : G Base.Address :=
   gAddress_ zero_address addrs

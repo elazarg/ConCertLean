@@ -687,11 +687,9 @@ def execute_action_step
 
 /-! ### Chain builder
 
-    The builder pairs a `LocalChain` with a *propositional* trace
-    existence-witness from `empty_state`. Coq stores the trace as data
-    (proved via tactics, `Defined.`); this port stores `Nonempty` of the trace
-    type so that `add_block` stays computable. A concrete trace can be
-    extracted from `Nonempty.some` using classical choice. -/
+    The builder pairs a `LocalChain` with concrete trace data from
+    `empty_state`. The trace is proof-carrying, but storing it directly keeps
+    generated tests able to inspect traces without using classical choice. -/
 
 def empty_state_LCB : LCChainSt AddrSize :=
   letI : ChainBase := LocalChainBase AddrSize
@@ -713,14 +711,14 @@ theorem lc_to_chain_state_initial :
 abbrev LCTrace (frm to_ : LCChainSt AddrSize) : Type :=
   @ChainTrace (LocalChainBase AddrSize) frm to_
 
-theorem execute_actions_trace
+def execute_actions_trace
     (count : Nat) (acts : List (LCAct AddrSize))
     (lc lc_final : LocalChain AddrSize) (depth_first : Bool)
     (trace : LCTrace AddrSize (empty_state_LCB AddrSize)
       (lc_to_chain_state AddrSize lc acts)) :
     execute_actions AddrSize count acts lc depth_first = .Ok lc_final →
-    Nonempty (LCTrace AddrSize (empty_state_LCB AddrSize)
-      (lc_to_chain_state AddrSize lc_final [])) := by
+    LCTrace AddrSize (empty_state_LCB AddrSize)
+      (lc_to_chain_state AddrSize lc_final []) := by
   revert acts lc lc_final depth_first trace
   induction count with
   | zero =>
@@ -728,7 +726,7 @@ theorem execute_actions_trace
       cases acts with
       | nil =>
           simp [execute_actions] at h
-          exact ⟨h ▸ trace⟩
+          exact h ▸ trace
       | cons act rest =>
           simp [execute_actions] at h
   | succ count ih =>
@@ -738,7 +736,7 @@ theorem execute_actions_trace
       | nil =>
           simp [execute_actions] at h
           subst lc_final
-          exact ⟨trace⟩
+          exact trace
       | cons act rest =>
           simp [execute_actions] at h
           cases hexec : execute_action AddrSize act lc with
@@ -768,30 +766,24 @@ theorem execute_actions_trace
                 exact ih (rest ++ new_acts) lc_after lc_final false
                   (ChainedList.snoc (ChainedList.snoc trace step) perm_step) h
 
-/-- Executable local-chain state plus a proof-carrying trace witness.
-
-    The witness is `Nonempty` rather than direct trace data because the builder
-    is used computationally, while the trace is only consumed propositionally by
-    `ChainBuilderType.builder_trace`. Storing the concrete trace would thread
-    larger proof terms through the executable builder without changing public
-    execution behavior. -/
+/-- Executable local-chain state plus concrete proof-carrying trace data. -/
 structure LocalChainBuilder where
   lcb_lc : LocalChain AddrSize
   lcb_trace :
-    Nonempty (LCTrace AddrSize (empty_state_LCB AddrSize)
-                        (lc_to_chain_state AddrSize lcb_lc []))
+    LCTrace AddrSize (empty_state_LCB AddrSize)
+      (lc_to_chain_state AddrSize lcb_lc [])
 
 def lcb_initial : LocalChainBuilder AddrSize :=
   letI : ChainBase := LocalChainBase AddrSize
   { lcb_lc := lc_initial AddrSize,
-    lcb_trace := ⟨lc_to_chain_state_initial AddrSize ▸ ChainedList.clnil⟩ }
+    lcb_trace := lc_to_chain_state_initial AddrSize ▸ ChainedList.clnil }
 
-theorem add_block_trace :
+def add_block_trace :
   ∀ (depth_first : Bool) (lcb : LocalChainBuilder AddrSize)
     (header : LCBH AddrSize) (actions : List (LCAct AddrSize)) (lc' : LocalChain AddrSize),
     add_block_exec AddrSize depth_first lcb.lcb_lc header actions = .Ok lc' →
-    Nonempty (LCTrace AddrSize (empty_state_LCB AddrSize)
-                       (lc_to_chain_state AddrSize lc' [])) := by
+    LCTrace AddrSize (empty_state_LCB AddrSize)
+      (lc_to_chain_state AddrSize lc' []) := by
   intro depth_first lcb header actions lc' h
   letI : ChainBase := LocalChainBase AddrSize
   unfold add_block_exec at h
@@ -807,7 +799,6 @@ theorem add_block_trace :
             simp [hi] at h
         | none =>
             simp [hi] at h
-            obtain ⟨prev_trace⟩ := lcb.lcb_trace
             let lc0 := add_new_block AddrSize header lcb.lcb_lc
             have step : @ChainStep (LocalChainBase AddrSize)
                 (lc_to_chain_state AddrSize lcb.lcb_lc [])
@@ -820,7 +811,7 @@ theorem add_block_trace :
               · exact validate_origin_neq_from_valid AddrSize actions ho
               · exact add_new_block_equiv AddrSize header lcb.lcb_lc
             exact execute_actions_trace AddrSize 1000 actions lc0 lc' depth_first
-              (ChainedList.snoc prev_trace step) h
+              (ChainedList.snoc lcb.lcb_trace step) h
   · simp [hv] at h
 
 def add_block (depth_first : Bool) (lcb : LocalChainBuilder AddrSize)
@@ -833,14 +824,12 @@ def add_block (depth_first : Bool) (lcb : LocalChainBuilder AddrSize)
           lcb_trace := add_block_trace AddrSize depth_first lcb header actions lc' h }
   | .Err e => .Err e
 
-/-- Concrete `ChainBuilderType` instance. `builder_trace` extracts the witness
-    from `Nonempty` via `Classical.choice`. -/
-@[reducible] noncomputable def LocalChainBuilderImpl : LCCBT AddrSize :=
+@[reducible] def LocalChainBuilderImpl : LCCBT AddrSize :=
   letI : ChainBase := LocalChainBase AddrSize
   { builder_type    := LocalChainBuilder AddrSize,
     builder_initial := lcb_initial AddrSize,
     builder_env     := fun lcb => lc_to_env AddrSize lcb.lcb_lc,
     builder_add_block := add_block AddrSize DepthFirst,
-    builder_trace   := fun b => b.lcb_trace.some }
+    builder_trace   := fun b => b.lcb_trace }
 
 end ConCert.Execution.Test.LocalBlockchain

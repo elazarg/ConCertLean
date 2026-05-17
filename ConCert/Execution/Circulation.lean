@@ -17,7 +17,7 @@ open ConCert.Utils.Extras
 variable [Base : ChainBase] [Finite Base.Address]
 
 def circulation (env : @Environment Base) : Int :=
-  sumZ env.env_account_balances (Finite.elements (T := Base.Address))
+  ((Finite.elements (T := Base.Address)).map env.env_account_balances).sum
 
 theorem address_reorganize
     {a b : Base.Address} (h : a ≠ b) :
@@ -46,8 +46,8 @@ theorem eval_action_from_to_same
   induction (Finite.elements (T := Base.Address)) with
   | nil => rfl
   | cons hd tl ih =>
-    show post.env_account_balances hd + sumZ _ tl =
-         pre.env_account_balances hd + sumZ _ tl
+    show post.env_account_balances hd + (tl.map post.env_account_balances).sum =
+         pre.env_account_balances hd + (tl.map pre.env_account_balances).sum
     rw [ih, account_balance_post eval, h_eq]
     -- After h_eq, both ifs have the same condition (addr_eqb hd eval_to)
     show (pre.env_account_balances hd +
@@ -55,8 +55,8 @@ theorem eval_action_from_to_same
                 ActionEvaluation.eval_amount eval else 0) -
             (if Base.address_eqb hd (ActionEvaluation.eval_to eval) then
                 ActionEvaluation.eval_amount eval else 0) : Int) +
-          sumZ pre.env_account_balances tl =
-          pre.env_account_balances hd + sumZ pre.env_account_balances tl
+          (tl.map pre.env_account_balances).sum =
+          pre.env_account_balances hd + (tl.map pre.env_account_balances).sum
     by_cases ht : Base.address_eqb hd (ActionEvaluation.eval_to eval) = true
     · rw [if_pos ht]; linarith
     · rw [if_neg ht]; linarith
@@ -71,16 +71,26 @@ theorem eval_action_circulation_unchanged
   · obtain ⟨suf, perm⟩ := address_reorganize h_eq
     have perm_sym := perm.symm
     unfold circulation
-    rw [sumZ_permutation perm_sym, sumZ_permutation (f := pre.env_account_balances) perm_sym]
-    -- Both LHS and RHS now have sumZ over [eval_from, eval_to] ++ suf
+    have hpost_sum :
+        ((Finite.elements (T := Base.Address)).map post.env_account_balances).sum =
+          (([ActionEvaluation.eval_from eval, ActionEvaluation.eval_to eval] ++ suf).map
+            post.env_account_balances).sum :=
+      (perm_sym.map post.env_account_balances).foldr_op_eq
+    have hpre_sum :
+        ((Finite.elements (T := Base.Address)).map pre.env_account_balances).sum =
+          (([ActionEvaluation.eval_from eval, ActionEvaluation.eval_to eval] ++ suf).map
+            pre.env_account_balances).sum :=
+      (perm_sym.map pre.env_account_balances).foldr_op_eq
+    rw [hpost_sum, hpre_sum]
+    -- Both LHS and RHS now have sums over [eval_from, eval_to] ++ suf
     show post.env_account_balances (ActionEvaluation.eval_from eval) +
          (post.env_account_balances (ActionEvaluation.eval_to eval) +
-          sumZ post.env_account_balances suf) =
+          (suf.map post.env_account_balances).sum) =
          pre.env_account_balances (ActionEvaluation.eval_from eval) +
          (pre.env_account_balances (ActionEvaluation.eval_to eval) +
-          sumZ pre.env_account_balances suf)
+          (suf.map pre.env_account_balances).sum)
     rw [account_balance_post_to eval h_eq, account_balance_post_from eval h_eq]
-    -- It remains to show: sumZ post suf = sumZ pre suf
+    -- It remains to show: the suffix sums are equal.
     -- Use that eval_from and eval_to are not in suf (from Perm + NoDup of elements).
     have nodup_full : List.Nodup ([ActionEvaluation.eval_from eval,
                                     ActionEvaluation.eval_to eval] ++ suf) := by
@@ -95,8 +105,10 @@ theorem eval_action_circulation_unchanged
                              ActionEvaluation.eval_to eval]
       · exact List.mem_cons_of_mem _ List.mem_cons_self
       · exact nodup_full
-    have hsuf : sumZ post.env_account_balances suf = sumZ pre.env_account_balances suf := by
-      clear perm perm_sym nodup_full
+    have hsuf :
+        (suf.map post.env_account_balances).sum =
+          (suf.map pre.env_account_balances).sum := by
+      clear perm perm_sym nodup_full hpost_sum hpre_sum
       induction suf with
       | nil => rfl
       | cons x xs ih =>
@@ -108,8 +120,8 @@ theorem eval_action_circulation_unchanged
           fun h => from_not_in_suf (List.mem_cons_of_mem _ h)
         have ht' : ActionEvaluation.eval_to eval ∉ xs :=
           fun h => to_not_in_suf (List.mem_cons_of_mem _ h)
-        show post.env_account_balances x + sumZ post.env_account_balances xs =
-             pre.env_account_balances x + sumZ pre.env_account_balances xs
+        show post.env_account_balances x + (xs.map post.env_account_balances).sum =
+             pre.env_account_balances x + (xs.map pre.env_account_balances).sum
         rw [ih hf' ht', account_balance_post_irrelevant eval x hx_from hx_to]
     rw [hsuf]; linarith
 
@@ -137,12 +149,22 @@ theorem circulation_add_new_block
   obtain ⟨suf, perm⟩ := hp
   have perm_sym := perm.symm
   unfold circulation
-  rw [sumZ_permutation perm_sym, sumZ_permutation (f := env.env_account_balances) perm_sym]
+  have hpost_sum :
+      ((Finite.elements (T := Base.Address)).map
+          (add_new_block_to_env header env).env_account_balances).sum =
+        (([header.block_creator] ++ suf).map
+          (add_new_block_to_env header env).env_account_balances).sum :=
+    (perm_sym.map (add_new_block_to_env header env).env_account_balances).foldr_op_eq
+  have hpre_sum :
+      ((Finite.elements (T := Base.Address)).map env.env_account_balances).sum =
+        (([header.block_creator] ++ suf).map env.env_account_balances).sum :=
+    (perm_sym.map env.env_account_balances).foldr_op_eq
+  rw [hpost_sum, hpre_sum]
   -- balances of (add_new_block_to_env header env) = add_balance creator reward env.balances
   -- Element block_creator: env.balances creator + reward; others: same.
   show (add_new_block_to_env header env).env_account_balances header.block_creator +
-        sumZ (add_new_block_to_env header env).env_account_balances suf =
-        env.env_account_balances header.block_creator + sumZ env.env_account_balances suf +
+        (suf.map (add_new_block_to_env header env).env_account_balances).sum =
+        env.env_account_balances header.block_creator + (suf.map env.env_account_balances).sum +
           header.block_reward
   have h_creator : (add_new_block_to_env header env).env_account_balances header.block_creator =
                     env.env_account_balances header.block_creator + header.block_reward := by
@@ -157,9 +179,10 @@ theorem circulation_add_new_block
     apply in_NoDup_app _ [header.block_creator]
     · exact List.mem_cons_self
     · exact nodup_full
-  have hsuf : sumZ (add_new_block_to_env header env).env_account_balances suf =
-              sumZ env.env_account_balances suf := by
-    clear perm perm_sym nodup_full
+  have hsuf :
+      (suf.map (add_new_block_to_env header env).env_account_balances).sum =
+        (suf.map env.env_account_balances).sum := by
+    clear perm perm_sym nodup_full hpost_sum hpre_sum
     induction suf with
     | nil => rfl
     | cons x xs ih =>
@@ -168,8 +191,8 @@ theorem circulation_add_new_block
       have hin' : header.block_creator ∉ xs :=
         fun h => creator_not_in_suf (List.mem_cons_of_mem _ h)
       show (add_new_block_to_env header env).env_account_balances x +
-            sumZ (add_new_block_to_env header env).env_account_balances xs =
-            env.env_account_balances x + sumZ env.env_account_balances xs
+            (xs.map (add_new_block_to_env header env).env_account_balances).sum =
+            env.env_account_balances x + (xs.map env.env_account_balances).sum
       rw [ih hin']
       have hx_balance : (add_new_block_to_env header env).env_account_balances x =
                         env.env_account_balances x := by
@@ -201,32 +224,31 @@ theorem step_circulation {prev next : @ChainState Base} (step : ChainStep prev n
 theorem chain_trace_circulation
     {state : @ChainState Base} (trace : ChainTrace empty_state state) :
     circulation state.toEnvironment =
-      sumZ (fun h => @BlockHeader.block_reward Base h) (trace_blocks trace) := by
+      ((trace_blocks trace).map (fun h => @BlockHeader.block_reward Base h)).sum := by
   induction trace with
   | clnil =>
     -- circulation of empty_state = 0
     unfold circulation
-    show sumZ (fun _ => (0 : Int)) _ = sumZ _ (trace_blocks ChainedList.clnil)
-    rw [sumZ_zero]
-    simp [trace_blocks, sumZ]
+    simp [trace_blocks, empty_state]
   | snoc tail s ih =>
-    simp only [trace_blocks, sumZ_app]
+    simp only [trace_blocks, List.map_append, List.sum_append]
     cases s with
     | step_block hdr _ _ _ _ henv =>
       rw [circulation_proper _ _ henv, circulation_add_new_block, ih]
-      show _ = sumZ (fun h => h.block_reward) [hdr] + _
-      simp [sumZ]; linarith
+      show _ = ([hdr].map (fun h => h.block_reward)).sum + _
+      simp
+      linarith
     | step_action _ _ _ _ eval _ =>
       rw [eval_action_circulation_unchanged eval, ih]
-      show _ = sumZ _ [] + _
-      simp [sumZ]
+      show _ = ([].map (fun h : @BlockHeader Base => h.block_reward)).sum + _
+      simp
     | step_action_invalid _ _ henv _ _ _ _ =>
       rw [circulation_proper _ _ henv, ih]
-      show _ = sumZ _ [] + _
-      simp [sumZ]
+      show _ = ([].map (fun h : @BlockHeader Base => h.block_reward)).sum + _
+      simp
     | step_permute henv _ =>
       rw [circulation_proper _ _ henv, ih]
-      show _ = sumZ _ [] + _
-      simp [sumZ]
+      show _ = ([].map (fun h : @BlockHeader Base => h.block_reward)).sum + _
+      simp
 
 end ConCert.Execution.Circulation

@@ -56,7 +56,7 @@ instance ser_value_equivalence : Serializable SerializedValue where
   deserialize v := some v
   deserialize_serialize _ := rfl
 
-/-! ### Positive / stdpp-countable compatibility
+/-! ### Positive / stdpp-countable encoding
 
 Rocq's `BoundedN` instance serializes through `stdpp.countable.encode`, whose
 `N` instance maps `n` to the positive integer `n + 1`. The wrapper below gives
@@ -142,7 +142,7 @@ theorem decode_encode_bounded {bound : Nat} (n : BoundedN bound) :
   simpa [decode_bounded, encode_bounded, decode_encode_N] using
     (BoundedN.of_to_N n)
 
-/-- Rocq-compatible `BoundedN` serialization.
+/-- `BoundedN` serialization using the Rocq/stdpp wire shape.
 
     Upstream routes the value through `countable.encode : N → positive`.
     Since stdpp encodes `N` as `n + 1`, the serialized integer for value `n`
@@ -522,6 +522,65 @@ def serialize_constructor6 {A B C D E F : Type}
           serialize (d,
             serialize (e, serialize (f, (serialize () : SerializedValue))))))))
 
+def serialize_constructor7 {A B C D E F G : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G) :
+    SerializedValue :=
+  serialize (tag,
+    serialize (a,
+      serialize (b,
+        serialize (c,
+          serialize (d,
+            serialize (e,
+              serialize (f, serialize (g, (serialize () : SerializedValue)))))))))
+
+def serialize_constructor8 {A B C D E F G H : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G)
+    (h : H) : SerializedValue :=
+  serialize (tag,
+    serialize (a,
+      serialize (b,
+        serialize (c,
+          serialize (d,
+            serialize (e,
+              serialize (f,
+                serialize (g, serialize (h, (serialize () : SerializedValue))))))))))
+
+def serialize_constructor9 {A B C D E F G H I : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G)
+    (h : H) (i : I) : SerializedValue :=
+  serialize (tag,
+    serialize (a,
+      serialize (b,
+        serialize (c,
+          serialize (d,
+            serialize (e,
+              serialize (f,
+                serialize (g,
+                  serialize (h, serialize (i, (serialize () : SerializedValue)))))))))))
+
+def serialize_constructor10 {A B C D E F G H I J : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I] [Serializable J]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G)
+    (h : H) (i : I) (j : J) : SerializedValue :=
+  serialize (tag,
+    serialize (a,
+      serialize (b,
+        serialize (c,
+          serialize (d,
+            serialize (e,
+              serialize (f,
+                serialize (g,
+                  serialize (h,
+                    serialize (i,
+                      serialize (j, (serialize () : SerializedValue))))))))))))
+
 def deserialize_constructor_payload (expectedTag : Nat) (v : SerializedValue) :
     Option SerializedValue := do
   let pair ← (deserialize v : Option (Nat × SerializedValue))
@@ -619,6 +678,110 @@ def deserialize_constructor6 {A B C D E F : Type}
   let f := pairF.1
   pure (a, b, c, d, e, f)
 
+def deserialize_constructor7 {A B C D E F G : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G]
+    (expectedTag : Nat) (v : SerializedValue) :
+    Option (A × B × C × D × E × F × G) := do
+  let payload ← deserialize_constructor_payload expectedTag v
+  let pairA ← (deserialize payload : Option (A × SerializedValue))
+  let pairB ← (deserialize pairA.2 : Option (B × SerializedValue))
+  let pairC ← (deserialize pairB.2 : Option (C × SerializedValue))
+  let pairD ← (deserialize pairC.2 : Option (D × SerializedValue))
+  let pairE ← (deserialize pairD.2 : Option (E × SerializedValue))
+  let pairF ← (deserialize pairE.2 : Option (F × SerializedValue))
+  let pairG ← (deserialize pairF.2 : Option (G × SerializedValue))
+  let _unit ← (deserialize pairG.2 : Option Unit)
+  let a := pairA.1
+  let b := pairB.1
+  let c := pairC.1
+  let d := pairD.1
+  let e := pairE.1
+  let f := pairF.1
+  let g := pairG.1
+  pure (a, b, c, d, e, f, g)
+
+def deserialize_constructor8 {A B C D E F G H : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H]
+    (expectedTag : Nat) (v : SerializedValue) :
+    Option (A × B × C × D × E × F × G × H) := do
+  let payload ← deserialize_constructor_payload expectedTag v
+  let pairA ← (deserialize payload : Option (A × SerializedValue))
+  let pairB ← (deserialize pairA.2 : Option (B × SerializedValue))
+  let pairC ← (deserialize pairB.2 : Option (C × SerializedValue))
+  let pairD ← (deserialize pairC.2 : Option (D × SerializedValue))
+  let pairE ← (deserialize pairD.2 : Option (E × SerializedValue))
+  let pairF ← (deserialize pairE.2 : Option (F × SerializedValue))
+  let pairG ← (deserialize pairF.2 : Option (G × SerializedValue))
+  let pairH ← (deserialize pairG.2 : Option (H × SerializedValue))
+  let _unit ← (deserialize pairH.2 : Option Unit)
+  let a := pairA.1
+  let b := pairB.1
+  let c := pairC.1
+  let d := pairD.1
+  let e := pairE.1
+  let f := pairF.1
+  let g := pairG.1
+  let h := pairH.1
+  pure (a, b, c, d, e, f, g, h)
+
+def deserialize_constructor9 {A B C D E F G H I : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I]
+    (expectedTag : Nat) (v : SerializedValue) :
+    Option (A × B × C × D × E × F × G × H × I) := do
+  let payload ← deserialize_constructor_payload expectedTag v
+  let pairA ← (deserialize payload : Option (A × SerializedValue))
+  let pairB ← (deserialize pairA.2 : Option (B × SerializedValue))
+  let pairC ← (deserialize pairB.2 : Option (C × SerializedValue))
+  let pairD ← (deserialize pairC.2 : Option (D × SerializedValue))
+  let pairE ← (deserialize pairD.2 : Option (E × SerializedValue))
+  let pairF ← (deserialize pairE.2 : Option (F × SerializedValue))
+  let pairG ← (deserialize pairF.2 : Option (G × SerializedValue))
+  let pairH ← (deserialize pairG.2 : Option (H × SerializedValue))
+  let pairI ← (deserialize pairH.2 : Option (I × SerializedValue))
+  let _unit ← (deserialize pairI.2 : Option Unit)
+  let a := pairA.1
+  let b := pairB.1
+  let c := pairC.1
+  let d := pairD.1
+  let e := pairE.1
+  let f := pairF.1
+  let g := pairG.1
+  let h := pairH.1
+  let i := pairI.1
+  pure (a, b, c, d, e, f, g, h, i)
+
+def deserialize_constructor10 {A B C D E F G H I J : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I] [Serializable J]
+    (expectedTag : Nat) (v : SerializedValue) :
+    Option (A × B × C × D × E × F × G × H × I × J) := do
+  let payload ← deserialize_constructor_payload expectedTag v
+  let pairA ← (deserialize payload : Option (A × SerializedValue))
+  let pairB ← (deserialize pairA.2 : Option (B × SerializedValue))
+  let pairC ← (deserialize pairB.2 : Option (C × SerializedValue))
+  let pairD ← (deserialize pairC.2 : Option (D × SerializedValue))
+  let pairE ← (deserialize pairD.2 : Option (E × SerializedValue))
+  let pairF ← (deserialize pairE.2 : Option (F × SerializedValue))
+  let pairG ← (deserialize pairF.2 : Option (G × SerializedValue))
+  let pairH ← (deserialize pairG.2 : Option (H × SerializedValue))
+  let pairI ← (deserialize pairH.2 : Option (I × SerializedValue))
+  let pairJ ← (deserialize pairI.2 : Option (J × SerializedValue))
+  let _unit ← (deserialize pairJ.2 : Option Unit)
+  let a := pairA.1
+  let b := pairB.1
+  let c := pairC.1
+  let d := pairD.1
+  let e := pairE.1
+  let f := pairF.1
+  let g := pairG.1
+  let h := pairH.1
+  let i := pairI.1
+  let j := pairJ.1
+  pure (a, b, c, d, e, f, g, h, i, j)
+
 theorem deserialize_constructor0_serialize_constructor0 (expectedTag tag : Nat) :
     deserialize_constructor0 expectedTag (serialize_constructor0 tag) =
       if tag = expectedTag then some () else none := by
@@ -694,6 +857,59 @@ theorem deserialize_constructor6_serialize_constructor6 {A B C D E F : Type}
   · simp [deserialize_constructor6, serialize_constructor6, deserialize_constructor_payload, h,
       deserialize_serialize]
 
+theorem deserialize_constructor7_serialize_constructor7 {A B C D E F G : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G]
+    (expectedTag tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F)
+    (g : G) :
+    deserialize_constructor7 expectedTag (serialize_constructor7 tag a b c d e f g) =
+      if tag = expectedTag then some (a, b, c, d, e, f, g) else none := by
+  by_cases h : tag = expectedTag
+  · simp [deserialize_constructor7, serialize_constructor7, deserialize_constructor_payload, h,
+      deserialize_serialize]
+  · simp [deserialize_constructor7, serialize_constructor7, deserialize_constructor_payload, h,
+      deserialize_serialize]
+
+theorem deserialize_constructor8_serialize_constructor8 {A B C D E F G H : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H]
+    (expectedTag tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F)
+    (g : G) (hval : H) :
+    deserialize_constructor8 expectedTag (serialize_constructor8 tag a b c d e f g hval) =
+      if tag = expectedTag then some (a, b, c, d, e, f, g, hval) else none := by
+  by_cases h : tag = expectedTag
+  · simp [deserialize_constructor8, serialize_constructor8, deserialize_constructor_payload, h,
+      deserialize_serialize]
+  · simp [deserialize_constructor8, serialize_constructor8, deserialize_constructor_payload, h,
+      deserialize_serialize]
+
+theorem deserialize_constructor9_serialize_constructor9 {A B C D E F G H I : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I]
+    (expectedTag tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F)
+    (g : G) (hval : H) (i : I) :
+    deserialize_constructor9 expectedTag (serialize_constructor9 tag a b c d e f g hval i) =
+      if tag = expectedTag then some (a, b, c, d, e, f, g, hval, i) else none := by
+  by_cases h : tag = expectedTag
+  · simp [deserialize_constructor9, serialize_constructor9, deserialize_constructor_payload, h,
+      deserialize_serialize]
+  · simp [deserialize_constructor9, serialize_constructor9, deserialize_constructor_payload, h,
+      deserialize_serialize]
+
+theorem deserialize_constructor10_serialize_constructor10 {A B C D E F G H I J : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I] [Serializable J]
+    (expectedTag tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F)
+    (g : G) (hval : H) (i : I) (j : J) :
+    deserialize_constructor10 expectedTag
+        (serialize_constructor10 tag a b c d e f g hval i j) =
+      if tag = expectedTag then some (a, b, c, d, e, f, g, hval, i, j) else none := by
+  by_cases h : tag = expectedTag
+  · simp [deserialize_constructor10, serialize_constructor10, deserialize_constructor_payload, h,
+      deserialize_serialize]
+  · simp [deserialize_constructor10, serialize_constructor10, deserialize_constructor_payload, h,
+      deserialize_serialize]
+
 theorem deserialize_serialize_constructor0 (tag : Nat) :
     deserialize_constructor0 tag (serialize_constructor0 tag) = some () := by
   simp [deserialize_constructor0_serialize_constructor0]
@@ -735,6 +951,41 @@ theorem deserialize_serialize_constructor6 {A B C D E F : Type}
     deserialize_constructor6 tag (serialize_constructor6 tag a b c d e f) =
       some (a, b, c, d, e, f) := by
   simp [deserialize_constructor6_serialize_constructor6]
+
+theorem deserialize_serialize_constructor7 {A B C D E F G : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G) :
+    deserialize_constructor7 tag (serialize_constructor7 tag a b c d e f g) =
+      some (a, b, c, d, e, f, g) := by
+  simp [deserialize_constructor7_serialize_constructor7]
+
+theorem deserialize_serialize_constructor8 {A B C D E F G H : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G)
+    (h : H) :
+    deserialize_constructor8 tag (serialize_constructor8 tag a b c d e f g h) =
+      some (a, b, c, d, e, f, g, h) := by
+  simp [deserialize_constructor8_serialize_constructor8]
+
+theorem deserialize_serialize_constructor9 {A B C D E F G H I : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G)
+    (h : H) (i : I) :
+    deserialize_constructor9 tag (serialize_constructor9 tag a b c d e f g h i) =
+      some (a, b, c, d, e, f, g, h, i) := by
+  simp [deserialize_constructor9_serialize_constructor9]
+
+theorem deserialize_serialize_constructor10 {A B C D E F G H I J : Type}
+    [Serializable A] [Serializable B] [Serializable C] [Serializable D] [Serializable E]
+    [Serializable F] [Serializable G] [Serializable H] [Serializable I] [Serializable J]
+    (tag : Nat) (a : A) (b : B) (c : C) (d : D) (e : E) (f : F) (g : G)
+    (h : H) (i : I) (j : J) :
+    deserialize_constructor10 tag (serialize_constructor10 tag a b c d e f g h i j) =
+      some (a, b, c, d, e, f, g, h, i, j) := by
+  simp [deserialize_constructor10_serialize_constructor10]
 
 end ConstructorWire
 

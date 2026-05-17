@@ -1,53 +1,9 @@
-/- Port of utils/theories/Automation.v.
+/- Port of the non-tactic helper retained from utils/theories/Automation.v.
 
-The original is entirely Ltac tactics (`appify`, `perm_simplify`, `destruct_match`,
-`propify`, `destruct_hyps`, etc.). Lean tactic scripts still need local
-adaptation, but the common names below give proof ports small, predictable
-wrappers around Lean's native tactics. -/
+The Rocq file is mostly Ltac. Those tactics are not part of the executable or
+proved Lean surface unless a ported proof actually uses them. -/
 
 namespace ConCert.Utils.Automation
-
-syntax "appify" : tactic
-syntax "perm_simplify" : tactic
-syntax "destruct_match" : tactic
-syntax "propify" : tactic
-syntax "destruct_units" : tactic
-syntax "solve_by_rewrite" : tactic
-syntax "solve_by_inversion" : tactic
-syntax "specialize_hypotheses" : tactic
-syntax "unset_all" : tactic
-syntax "destruct_or_hyps" : tactic
-syntax "destruct_hyps" : tactic
-syntax "destruct_and_split" : tactic
-syntax "tryfalse" : tactic
-
-macro_rules
-  | `(tactic| appify) =>
-      `(tactic| try simp only [List.cons_append, List.singleton_append])
-  | `(tactic| perm_simplify) =>
-      `(tactic| first | simpa using List.Perm.refl _ | simp_all)
-  | `(tactic| destruct_match) =>
-      `(tactic| split <;> simp_all)
-  | `(tactic| propify) =>
-      `(tactic| simp_all)
-  | `(tactic| destruct_units) =>
-      `(tactic| subst_vars <;> simp_all)
-  | `(tactic| solve_by_rewrite) =>
-      `(tactic| first | simp_all | assumption)
-  | `(tactic| solve_by_inversion) =>
-      `(tactic| first | contradiction | simp_all)
-  | `(tactic| specialize_hypotheses) =>
-      `(tactic| try simp_all)
-  | `(tactic| unset_all) =>
-      `(tactic| try subst_vars)
-  | `(tactic| destruct_or_hyps) =>
-      `(tactic| try simp_all)
-  | `(tactic| destruct_hyps) =>
-      `(tactic| try simp_all)
-  | `(tactic| destruct_and_split) =>
-      `(tactic| repeat' first | constructor | simp_all)
-  | `(tactic| tryfalse) =>
-      `(tactic| try (first | contradiction | simp_all))
 
 theorem Permutation_app_middle
     {A : Type} (xs l1 l2 l3 l4 : List A)

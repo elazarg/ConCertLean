@@ -285,21 +285,26 @@ theorem action_all_transfer_perm
 
 theorem sum_transfer_acts_to_perm
     (addr : Base.Address) (xs ys : List (@ActionBody Base)) (hperm : xs.Perm ys) :
-    sumZ (fun a => act_body_amount a) (transfer_acts_to addr xs) =
-      sumZ (fun a => act_body_amount a) (transfer_acts_to addr ys) := by
+    ((transfer_acts_to addr xs).map (fun a => act_body_amount a)).sum =
+      ((transfer_acts_to addr ys).map (fun a => act_body_amount a)).sum := by
   unfold transfer_acts_to
-  exact sumZ_permutation (hperm.filter (fun a =>
-    match a with
-    | .act_transfer to_ _ => Base.address_eqb to_ addr
-    | _ => false))
+  simpa [List.sum_eq_foldr] using
+    (List.Perm.foldr_op_eq
+      (op := fun x y : Int => x + y)
+      (a := (0 : Int))
+      ((hperm.filter (fun a =>
+        match a with
+        | .act_transfer to_ _ => Base.address_eqb to_ addr
+        | _ => false)).map
+        (fun a : @ActionBody Base => (act_body_amount a : Int))))
 
 /-- Net money paid out by the contract to a particular address
     (outgoing txs + queued transfers). -/
 def money_to {bstate_from bstate_to : @ChainState Base}
     (trace : ChainTrace bstate_from bstate_to) (caddr addr : Base.Address) : Amount :=
-  sumZ (fun tx => tx.tx_amount) (txs_to addr (outgoing_txs trace caddr)) +
-  sumZ (fun a => act_body_amount a)
-       (transfer_acts_to addr (outgoing_acts bstate_to caddr))
+  ((txs_to addr (outgoing_txs trace caddr)).map (fun tx => tx.tx_amount)).sum +
+  ((transfer_acts_to addr (outgoing_acts bstate_to caddr)).map
+    (fun a => act_body_amount a)).sum
 
 /-- Strong correctness: case-by-case invariants on `cstate.next_step`. -/
 theorem escrow_correct_strong :
@@ -397,11 +402,11 @@ theorem escrow_correct_strong :
            [{ call_origin := origin, call_from := buyer_addr,
               call_amount := 2 * item_worth,
               call_msg := some Msg.commit_money }]) ∧
-         sumZ (fun tx => tx.tx_amount) (txs_to seller_addr out_txs) +
-           sumZ (fun a => act_body_amount a) (transfer_acts_to seller_addr out_acts) +
+         ((txs_to seller_addr out_txs).map (fun tx => tx.tx_amount)).sum +
+           ((transfer_acts_to seller_addr out_acts).map (fun a => act_body_amount a)).sum +
            cstate.seller_withdrawable = 3 * item_worth ∧
-         sumZ (fun tx => tx.tx_amount) (txs_to buyer_addr out_txs) +
-           sumZ (fun a => act_body_amount a) (transfer_acts_to buyer_addr out_acts) +
+         ((txs_to buyer_addr out_txs).map (fun tx => tx.tx_amount)).sum +
+           ((transfer_acts_to buyer_addr out_acts).map (fun a => act_body_amount a)).sum +
            cstate.buyer_withdrawable = 1 * item_worth
        | .no_next_step =>
          (buyer_confirmed inc_calls buyer_addr = true ∧
@@ -409,21 +414,21 @@ theorem escrow_correct_strong :
             [{ call_origin := origin, call_from := buyer_addr,
                call_amount := 2 * item_worth,
                call_msg := some Msg.commit_money }]) ∧
-          sumZ (fun tx => tx.tx_amount) (txs_to seller_addr out_txs) +
-            sumZ (fun a => act_body_amount a) (transfer_acts_to seller_addr out_acts) =
+          ((txs_to seller_addr out_txs).map (fun tx => tx.tx_amount)).sum +
+            ((transfer_acts_to seller_addr out_acts).map (fun a => act_body_amount a)).sum =
               3 * item_worth ∧
-          sumZ (fun tx => tx.tx_amount) (txs_to buyer_addr out_txs) +
-            sumZ (fun a => act_body_amount a) (transfer_acts_to buyer_addr out_acts) =
+          ((txs_to buyer_addr out_txs).map (fun tx => tx.tx_amount)).sum +
+            ((transfer_acts_to buyer_addr out_acts).map (fun a => act_body_amount a)).sum =
               1 * item_worth) ∨
          ((∃ origin, inc_calls =
             [{ call_origin := origin, call_from := seller_addr,
                call_amount := 0,
                call_msg := some Msg.withdraw }]) ∧
-          sumZ (fun tx => tx.tx_amount) (txs_to seller_addr out_txs) +
-            sumZ (fun a => act_body_amount a) (transfer_acts_to seller_addr out_acts) =
+          ((txs_to seller_addr out_txs).map (fun tx => tx.tx_amount)).sum +
+            ((transfer_acts_to seller_addr out_acts).map (fun a => act_body_amount a)).sum =
               2 * item_worth ∧
-          sumZ (fun tx => tx.tx_amount) (txs_to buyer_addr out_txs) +
-            sumZ (fun a => act_body_amount a) (transfer_acts_to buyer_addr out_acts) =
+          ((txs_to buyer_addr out_txs).map (fun tx => tx.tx_amount)).sum +
+            ((transfer_acts_to buyer_addr out_acts).map (fun a => act_body_amount a)).sum =
               0))
   have hcases : NonRecursiveContractInductionCases
       (Escrow.contract : @Contract Base _ _ _ _ _ _ _ _)
@@ -492,53 +497,53 @@ theorem escrow_correct_strong :
             refine ⟨hconfirmed, hcommit, ?_, ?_⟩
             · by_cases hs : Base.address_eqb to_ dep_info.deployment_from = true
               · simp [txs_to_cons, transfer_acts_to_cons, htx_to, htx_amount,
-                  hs, act_body_amount, sumZ] at hseller_sum ⊢
-                omega
+                  hs, act_body_amount] at hseller_sum ⊢
+                linarith
               · simp [txs_to_cons, transfer_acts_to_cons, htx_to,
                   hs, act_body_amount] at hseller_sum ⊢
-                omega
+                linarith
             · by_cases hb : Base.address_eqb to_ dep_info.deployment_setup.setup_buyer = true
               · simp [txs_to_cons, transfer_acts_to_cons, htx_to, htx_amount,
-                  hb, act_body_amount, sumZ] at hbuyer_sum ⊢
-                omega
+                  hb, act_body_amount] at hbuyer_sum ⊢
+                linarith
               · simp [txs_to_cons, transfer_acts_to_cons, htx_to,
                   hb, act_body_amount] at hbuyer_sum ⊢
-                omega
+                linarith
           · rcases hcase with hfinal | hrefund
             · rcases hfinal with ⟨hconfirmed, hcommit, hseller_sum, hbuyer_sum⟩
               left
               refine ⟨hconfirmed, hcommit, ?_, ?_⟩
               · by_cases hs : Base.address_eqb to_ dep_info.deployment_from = true
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to, htx_amount,
-                    hs, act_body_amount, sumZ] at hseller_sum ⊢
-                  omega
+                    hs, act_body_amount] at hseller_sum ⊢
+                  linarith
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to,
                     hs, act_body_amount] at hseller_sum ⊢
-                  omega
+                  linarith
               · by_cases hb : Base.address_eqb to_ dep_info.deployment_setup.setup_buyer = true
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to, htx_amount,
-                    hb, act_body_amount, sumZ] at hbuyer_sum ⊢
-                  omega
+                    hb, act_body_amount] at hbuyer_sum ⊢
+                  linarith
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to,
                     hb, act_body_amount] at hbuyer_sum ⊢
-                  omega
+                  linarith
             · rcases hrefund with ⟨hwithdraw, hseller_sum, hbuyer_sum⟩
               right
               refine ⟨hwithdraw, ?_, ?_⟩
               · by_cases hs : Base.address_eqb to_ dep_info.deployment_from = true
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to, htx_amount,
-                    hs, act_body_amount, sumZ] at hseller_sum ⊢
-                  omega
+                    hs, act_body_amount] at hseller_sum ⊢
+                  linarith
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to,
                     hs, act_body_amount] at hseller_sum ⊢
-                  omega
+                  linarith
               · by_cases hb : Base.address_eqb to_ dep_info.deployment_setup.setup_buyer = true
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to, htx_amount,
-                    hb, act_body_amount, sumZ] at hbuyer_sum ⊢
-                  omega
+                    hb, act_body_amount] at hbuyer_sum ⊢
+                  linarith
                 · simp [txs_to_cons, transfer_acts_to_cons, htx_to,
                     hb, act_body_amount] at hbuyer_sum ⊢
-                  omega
+                  linarith
       | act_deploy amount wc setup =>
           simp at hall
       | act_call to_ amount msg =>
@@ -638,10 +643,10 @@ theorem escrow_correct_strong :
                     · simp [buyer_confirmed, hfrom, Address.address_eq_refl]
                     · refine ⟨origin, ?_⟩
                       simp [hzero, hinc_prev, hcommit_nonzero]
-                    · simp [hqueue, hout, hquarter, sumZ, txs_to,
+                    · simp [hqueue, hout, hquarter, txs_to,
                         transfer_acts_to]
                       ring
-                    · simp [hqueue, hout, hquarter, sumZ, txs_to,
+                    · simp [hqueue, hout, hquarter, txs_to,
                         transfer_acts_to]
                 · rw [if_neg hzero] at hreceive
                   cases hreceive
@@ -679,10 +684,10 @@ theorem escrow_correct_strong :
                       · simp [hqueue]
                       · right
                         refine ⟨⟨⟨hfrom, hzero⟩, hinc⟩, ?_, ?_⟩
-                        · simp [hqueue, hout, transfer_acts_to, txs_to, sumZ,
+                        · simp [hqueue, hout, transfer_acts_to, txs_to,
                             act_body_amount, hseller, Address.address_eq_refl,
                             hbalance]
-                        · simp [hqueue, hout, transfer_acts_to, txs_to, sumZ,
+                        · simp [hqueue, hout, transfer_acts_to, txs_to,
                             act_body_amount,
                             Address.address_eq_ne _ _ hseller_buyer_ne]
                 · rw [if_neg hzero] at hreceive
@@ -733,7 +738,7 @@ theorem escrow_correct_strong :
                               refine ⟨origin, ?_⟩
                               simp [hzero, hcommit_eq]
                             · simp [transfer_acts_to_cons, hfrom,
-                                Address.address_eq_refl, act_body_amount, sumZ]
+                                Address.address_eq_refl, act_body_amount]
                                 at hseller_sum ⊢
                               linarith
                             · simp [transfer_acts_to_cons, hfrom,
@@ -766,7 +771,7 @@ theorem escrow_correct_strong :
                               refine ⟨origin, ?_⟩
                               simp [hzero, hcommit_eq]
                             · simp [transfer_acts_to_cons, hfrom,
-                                Address.address_eq_refl, act_body_amount, sumZ]
+                                Address.address_eq_refl, act_body_amount]
                                 at hseller_sum ⊢
                               linarith
                             · simp [transfer_acts_to_cons, hfrom,
@@ -807,7 +812,7 @@ theorem escrow_correct_strong :
                               at hseller_sum ⊢
                             linarith
                           · simp [transfer_acts_to_cons, hfrom,
-                              Address.address_eq_refl, act_body_amount, sumZ]
+                              Address.address_eq_refl, act_body_amount]
                               at hbuyer_sum ⊢
                             linarith
                       · rw [if_neg hseller_done] at hreceive
@@ -834,7 +839,7 @@ theorem escrow_correct_strong :
                               Address.address_eq_ne _ _ haddr_ne] at hseller_sum ⊢
                             linarith
                           · simp [transfer_acts_to_cons, hfrom,
-                              Address.address_eq_refl, act_body_amount, sumZ]
+                              Address.address_eq_refl, act_body_amount]
                               at hbuyer_sum ⊢
                             linarith
                 · rw [if_neg hzero] at hreceive
@@ -912,36 +917,36 @@ def is_escrow_finished (cstate : @State Base) : Bool :=
 
 def net_balance_effect {frm to_ : @ChainState Base}
     (trace : ChainTrace frm to_) (caddr addr : Base.Address) : Amount :=
-  sumZ (fun tx => tx.tx_amount) (txs_to addr (outgoing_txs trace caddr))
-  - sumZ (fun tx => tx.tx_amount) (txs_from addr (incoming_txs trace caddr))
+  ((txs_to addr (outgoing_txs trace caddr)).map (fun tx => tx.tx_amount)).sum
+  - ((txs_from addr (incoming_txs trace caddr)).map (fun tx => tx.tx_amount)).sum
 
 private theorem sum_txs_from_triples
     (addr : Base.Address) (txs : List (@Tx Base)) :
-    sumZ (fun tx => tx.tx_amount) (txs_from addr txs) =
-      sumZ (fun t : Base.Address × Base.Address × Amount => t.2.2)
-        ((txs.map (fun tx => (tx.tx_from, tx.tx_to, tx.tx_amount))).filter
-          (fun t => Base.address_eqb t.1 addr)) := by
+    ((txs_from addr txs).map (fun tx => tx.tx_amount)).sum =
+      (((txs.map (fun tx => (tx.tx_from, tx.tx_to, tx.tx_amount))).filter
+          (fun t => Base.address_eqb t.1 addr)).map
+        (fun t : Base.Address × Base.Address × Amount => t.2.2)).sum := by
   induction txs with
-  | nil => simp [txs_from, sumZ]
+  | nil => simp [txs_from]
   | cons tx txs ih =>
       rw [txs_from_cons]
       by_cases h : Base.address_eqb tx.tx_from addr = true
-      · simp [h, sumZ]
+      · simp [h]
         rw [ih]
       · simpa [h] using ih
 
 private theorem sum_call_triples_filter
     (addr caddr : Base.Address) (calls : List (@ContractCallInfo Base Msg)) :
-    sumZ (fun t : Base.Address × Base.Address × Amount => t.2.2)
-        ((calls.map (fun call => (call.call_from, caddr, call.call_amount))).filter
-          (fun t => Base.address_eqb t.1 addr)) =
-      sumZ (fun call => call.call_amount)
-        (calls.filter (fun call => Base.address_eqb call.call_from addr)) := by
+    (((calls.map (fun call => (call.call_from, caddr, call.call_amount))).filter
+        (fun t => Base.address_eqb t.1 addr)).map
+      (fun t : Base.Address × Base.Address × Amount => t.2.2)).sum =
+      ((calls.filter (fun call => Base.address_eqb call.call_from addr)).map
+        (fun call => call.call_amount)).sum := by
   induction calls with
-  | nil => simp [sumZ]
+  | nil => simp
   | cons call calls ih =>
       by_cases h : Base.address_eqb call.call_from addr = true
-      · simp [h, sumZ]
+      · simp [h]
         rw [ih]
       · simpa [h] using ih
 
@@ -952,34 +957,34 @@ private theorem sum_incoming_txs_from_eq
     (inc_calls : List (@ContractCallInfo Base Msg))
     (hdep : deployment_info (@Setup Base) trace caddr = some depinfo)
     (hcalls : incoming_calls Msg trace caddr = some inc_calls) :
-    sumZ (fun tx => tx.tx_amount) (txs_from addr (incoming_txs trace caddr)) =
-      sumZ (fun call => call.call_amount)
-          (inc_calls.filter (fun call => Base.address_eqb call.call_from addr)) +
+    ((txs_from addr (incoming_txs trace caddr)).map (fun tx => tx.tx_amount)).sum =
+      ((inc_calls.filter (fun call => Base.address_eqb call.call_from addr)).map
+          (fun call => call.call_amount)).sum +
         (if Base.address_eqb depinfo.deployment_from addr
          then depinfo.deployment_amount else 0) := by
   rw [sum_txs_from_triples]
   rw [incoming_txs_contract caddr bstate trace (@Setup Base) depinfo Msg inc_calls
     hdep hcalls]
-  rw [List.filter_append, sumZ_app]
+  rw [List.filter_append, List.map_append, List.sum_append]
   rw [sum_call_triples_filter]
   by_cases hfrom : Base.address_eqb depinfo.deployment_from addr = true
-  · simp [hfrom, sumZ]
-  · simp [hfrom, sumZ]
+  · simp [hfrom]
+  · simp [hfrom]
 
 private theorem sum_filter_ignore_zero_calls
     (xs : List (@ContractCallInfo Base Msg))
     (p : @ContractCallInfo Base Msg → Bool) :
-    sumZ (fun c => c.call_amount) (xs.filter p) =
-      sumZ (fun c => c.call_amount)
-        ((xs.filter (fun c => !(c.call_amount == 0))).filter p) := by
+    ((xs.filter p).map (fun c => c.call_amount)).sum =
+      (((xs.filter (fun c => !(c.call_amount == 0))).filter p).map
+        (fun c => c.call_amount)).sum := by
   induction xs with
-  | nil => simp [sumZ]
+  | nil => simp
   | cons x xs ih =>
       by_cases hzero : x.call_amount = 0
-      · cases hp : p x <;> simp [List.filter, hp, hzero, sumZ, ih]
+      · cases hp : p x <;> simp [List.filter, hp, hzero, ih]
       · have hnonzero : (x.call_amount == 0) = false := by
           simp [hzero]
-        cases hp : p x <;> simp [List.filter, hp, hnonzero, sumZ, ih]
+        cases hp : p x <;> simp [List.filter, hp, hnonzero, ih]
 
 /-- Functional correctness in the `ChainBuilderType` corollary shape. -/
 theorem escrow_correct :
@@ -1019,32 +1024,30 @@ theorem escrow_correct :
   rcases hcases with
     ⟨hdep_amount, hitem_pos, hseller, hbuyer, haddr_ne, hall, hcase⟩
   cases hstep : cstate.next_step <;>
-    simp [hstep, bstate, outgoing_acts, money_to, transfer_acts_to, sumZ]
+    simp [hstep, bstate, outgoing_acts, money_to, transfer_acts_to]
       at hfinished hcase
   rcases hcase with hfinal | hrefund
   · rcases hfinal with ⟨hconfirmed, hcommit, hseller_out, hbuyer_out⟩
     rcases hcommit with ⟨origin, hcommit_eq⟩
     have hseller_in :
-        sumZ (fun tx => tx.tx_amount)
-            (txs_from depinfo.deployment_from (incoming_txs trace caddr)) =
+        ((txs_from depinfo.deployment_from (incoming_txs trace caddr)).map
+            (fun tx => tx.tx_amount)).sum =
           2 * (depinfo.deployment_amount / 2) := by
       rw [sum_incoming_txs_from_eq trace caddr depinfo.deployment_from
         depinfo inc_calls hdep hcalls]
       rw [sum_filter_ignore_zero_calls]
       rw [hcommit_eq]
-      simp [Address.address_eq_ne _ _ haddr_ne, Address.address_eq_refl, sumZ]
+      simp [Address.address_eq_ne _ _ haddr_ne, Address.address_eq_refl]
       exact hdep_amount
     have hbuyer_in :
-        sumZ (fun tx => tx.tx_amount)
-            (txs_from depinfo.deployment_setup.setup_buyer
-              (incoming_txs trace caddr)) =
+        ((txs_from depinfo.deployment_setup.setup_buyer
+              (incoming_txs trace caddr)).map (fun tx => tx.tx_amount)).sum =
           2 * (depinfo.deployment_amount / 2) := by
       rw [sum_incoming_txs_from_eq trace caddr
         depinfo.deployment_setup.setup_buyer depinfo inc_calls hdep hcalls]
       rw [sum_filter_ignore_zero_calls]
       rw [hcommit_eq]
-      simp [Address.address_eq_refl, Address.address_eq_ne _ _ haddr_ne.symm,
-        sumZ]
+      simp [Address.address_eq_refl, Address.address_eq_ne _ _ haddr_ne.symm]
     left
     refine ⟨hconfirmed, ?_, ?_⟩
     · change
@@ -1062,23 +1065,22 @@ theorem escrow_correct :
   · rcases hrefund with ⟨hwithdraw, hseller_out, hbuyer_out⟩
     rcases hwithdraw with ⟨origin, hwithdraw_eq⟩
     have hseller_in :
-        sumZ (fun tx => tx.tx_amount)
-            (txs_from depinfo.deployment_from (incoming_txs trace caddr)) =
+        ((txs_from depinfo.deployment_from (incoming_txs trace caddr)).map
+            (fun tx => tx.tx_amount)).sum =
           2 * (depinfo.deployment_amount / 2) := by
       rw [sum_incoming_txs_from_eq trace caddr depinfo.deployment_from
         depinfo inc_calls hdep hcalls]
       rw [hwithdraw_eq]
-      simp [Address.address_eq_refl, sumZ]
+      simp [Address.address_eq_refl]
       exact hdep_amount
     have hbuyer_in :
-        sumZ (fun tx => tx.tx_amount)
-            (txs_from depinfo.deployment_setup.setup_buyer
-              (incoming_txs trace caddr)) =
+        ((txs_from depinfo.deployment_setup.setup_buyer
+              (incoming_txs trace caddr)).map (fun tx => tx.tx_amount)).sum =
           0 := by
       rw [sum_incoming_txs_from_eq trace caddr
         depinfo.deployment_setup.setup_buyer depinfo inc_calls hdep hcalls]
       rw [hwithdraw_eq]
-      simp [Address.address_eq_ne _ _ haddr_ne.symm, sumZ]
+      simp [Address.address_eq_ne _ _ haddr_ne.symm]
     right
     refine ⟨?_, ?_, ?_⟩
     · simp [buyer_confirmed, hwithdraw_eq,

@@ -523,10 +523,4 @@ theorem incomming_eq_outgoing :
             by simp [incoming_calls, step_incoming_calls, hcalls],
             by simpa [outgoing_txs, trace_txs, step_txs] using heq⟩
 
-syntax "trace_induction" term : tactic
-
-macro_rules
-  | `(tactic| trace_induction $trace:term) =>
-      `(tactic| induction $trace:term <;> simp_all)
-
 end ConCert.Execution.InterContractCommunication

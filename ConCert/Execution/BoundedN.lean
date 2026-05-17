@@ -5,7 +5,6 @@ import ConCert.Execution.Finite
 import ConCert.Execution.Monad
 import ConCert.Execution.OptionMonad
 import ConCert.Execution.Containers
-import ConCert.Utils.Extras
 
 namespace ConCert.Execution
 
@@ -109,39 +108,10 @@ theorem of_nat_none
     {bound : Nat} {m : Nat} (h : @of_nat bound m = none) : bound ≤ m :=
   of_N_none h
 
-private theorem mem_mapOption_iff {A B : Type} (f : A → Option B) (b : B)
-    (xs : List A) :
-    b ∈ ConCert.Utils.Extras.mapOption f xs ↔ ∃ a ∈ xs, f a = some b := by
-  induction xs with
-  | nil => simp [ConCert.Utils.Extras.mapOption]
-  | cons hd tl ih =>
-    unfold ConCert.Utils.Extras.mapOption
-    split
-    · next b' hb' =>
-      simp only [List.mem_cons]
-      constructor
-      · rintro (rfl | hin)
-        · exact ⟨hd, by simp, hb'⟩
-        · obtain ⟨a, ha, hfa⟩ := ih.mp hin
-          exact ⟨a, Or.inr ha, hfa⟩
-      · rintro ⟨a, (rfl | hin), hfa⟩
-        · rw [hb'] at hfa
-          left; exact (Option.some.injEq _ _).mp hfa.symm
-        · exact Or.inr (ih.mpr ⟨a, hin, hfa⟩)
-    · next hb' =>
-      simp only [List.mem_cons]
-      constructor
-      · intro hin
-        obtain ⟨a, ha, hfa⟩ := ih.mp hin
-        exact ⟨a, Or.inr ha, hfa⟩
-      · rintro ⟨a, (rfl | hin), hfa⟩
-        · rw [hb'] at hfa; cases hfa
-        · exact ih.mpr ⟨a, hin, hfa⟩
-
 theorem in_map_of_nat
     (bound : Nat) (n : BoundedN bound) (xs : List Nat) :
-    n ∈ ConCert.Utils.Extras.mapOption (@of_nat bound) xs ↔ to_nat n ∈ xs := by
-  rw [mem_mapOption_iff]
+    n ∈ List.filterMap (@of_nat bound) xs ↔ to_nat n ∈ xs := by
+  rw [List.mem_filterMap]
   constructor
   · rintro ⟨a, ha, hfa⟩
     have := of_nat_some hfa
@@ -150,34 +120,16 @@ theorem in_map_of_nat
     exact ⟨to_nat n, hin, of_to_nat n⟩
 
 def bounded_elements (bound : Nat) : List (BoundedN bound) :=
-  ConCert.Utils.Extras.mapOption of_nat (List.range bound)
-
-private theorem nodup_mapOption_of_inj {A B : Type} (f : A → Option B)
-    (xs : List A) (hxs : xs.Nodup)
-    (hinj : ∀ {a a' : A} {b : B}, f a = some b → f a' = some b → a = a') :
-    (ConCert.Utils.Extras.mapOption f xs).Nodup := by
-  induction xs with
-  | nil => simp [ConCert.Utils.Extras.mapOption]
-  | cons hd tl ih =>
-    unfold ConCert.Utils.Extras.mapOption
-    cases hxs with
-    | cons hhd htl =>
-      split
-      · next b hb =>
-        refine List.nodup_cons.mpr ⟨?_, ih htl⟩
-        intro hbin
-        obtain ⟨a, ha, hfa⟩ := (mem_mapOption_iff f b tl).mp hbin
-        have := hinj hb hfa
-        subst this
-        exact hhd hd ha rfl
-      · exact ih htl
+  List.filterMap of_nat (List.range bound)
 
 theorem bounded_elements_set (bound : Nat) :
     List.Nodup (bounded_elements bound) := by
   unfold bounded_elements
-  apply nodup_mapOption_of_inj _ _ List.nodup_range
+  apply List.Nodup.filterMap ?_ List.nodup_range
   intro a a' b ha ha'
-  exact (of_nat_some ha).symm.trans (of_nat_some ha')
+  have ha_eq : of_nat a = some b := by simpa using ha
+  have ha'_eq : of_nat a' = some b := by simpa using ha'
+  exact (of_nat_some ha_eq).symm.trans (of_nat_some ha'_eq)
 
 theorem bounded_elements_all
     (bound : Nat) (a : BoundedN bound) : a ∈ bounded_elements bound := by

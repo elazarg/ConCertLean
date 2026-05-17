@@ -157,7 +157,7 @@ theorem receive_produces_no_calls
           simp [hc] at h
 
 def sum_inc_dec (l : List (@ContractCallInfo BaseTypes Msg)) : Int :=
-  ConCert.Utils.Extras.sumZ (fun c => opt_msg_to_number c.call_msg) l
+  (l.map (fun c => opt_msg_to_number c.call_msg)).sum
 
 theorem counter_safe
     (block_state : @ChainState BaseTypes) (counter_addr : BaseTypes.Address)
@@ -194,7 +194,7 @@ theorem counter_safe
     · intro chain ctx setup result _ hinit _
       simp [P, counter_contract, counter_init, sum_inc_dec] at hinit ⊢
       cases hinit
-      simp [ConCert.Utils.Extras.sumZ]
+      simp
     · intro _ _ _ _ _ _ _ _ _ _ _ _ ih _ _ _ _
       exact ih
     · intro chain ctx dep_info prev_state msg _ prev_inc_calls _ new_state new_acts
@@ -218,11 +218,11 @@ theorem counter_safe
               cases m with
               | Inc i =>
                   obtain ⟨_, hcount⟩ := hspec
-                  simp [sum_inc_dec, opt_msg_to_number, ConCert.Utils.Extras.sumZ] at ih ⊢
+                  simp [sum_inc_dec, opt_msg_to_number] at ih ⊢
                   omega
               | Dec i =>
                   obtain ⟨_, hcount⟩ := hspec
-                  simp [sum_inc_dec, opt_msg_to_number, ConCert.Utils.Extras.sumZ] at ih ⊢
+                  simp [sum_inc_dec, opt_msg_to_number] at ih ⊢
                   omega
     · intro chain ctx dep_info prev_state msg _ prev_out_queue prev_inc_calls _
         new_state new_acts _ _ ih _ hreceive _
@@ -245,11 +245,11 @@ theorem counter_safe
               cases m with
               | Inc i =>
                   obtain ⟨_, hcount⟩ := hspec
-                  simp [sum_inc_dec, opt_msg_to_number, ConCert.Utils.Extras.sumZ] at ih ⊢
+                  simp [sum_inc_dec, opt_msg_to_number] at ih ⊢
                   omega
               | Dec i =>
                   obtain ⟨_, hcount⟩ := hspec
-                  simp [sum_inc_dec, opt_msg_to_number, ConCert.Utils.Extras.sumZ] at ih ⊢
+                  simp [sum_inc_dec, opt_msg_to_number] at ih ⊢
                   omega
     · intro _ _ _ _ _ _ _ _ _ _ _ ih _ _
       exact ih

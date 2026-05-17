@@ -14,7 +14,7 @@ namespace Internal
 open ConCert.Execution.SerializableBase
 open ConCert.Execution.SerializableInstances
 
-private def maxConstructorArity : Nat := 6
+private def maxConstructorArity : Nat := 10
 
 private def serializeCtorName : Nat → Name
   | 0 => ``serialize_constructor0
@@ -23,7 +23,11 @@ private def serializeCtorName : Nat → Name
   | 3 => ``serialize_constructor3
   | 4 => ``serialize_constructor4
   | 5 => ``serialize_constructor5
-  | _ => ``serialize_constructor6
+  | 6 => ``serialize_constructor6
+  | 7 => ``serialize_constructor7
+  | 8 => ``serialize_constructor8
+  | 9 => ``serialize_constructor9
+  | _ => ``serialize_constructor10
 
 private def deserializeCtorName : Nat → Name
   | 0 => ``deserialize_constructor0
@@ -32,7 +36,11 @@ private def deserializeCtorName : Nat → Name
   | 3 => ``deserialize_constructor3
   | 4 => ``deserialize_constructor4
   | 5 => ``deserialize_constructor5
-  | _ => ``deserialize_constructor6
+  | 6 => ``deserialize_constructor6
+  | 7 => ``deserialize_constructor7
+  | 8 => ``deserialize_constructor8
+  | 9 => ``deserialize_constructor9
+  | _ => ``deserialize_constructor10
 
 private partial def mkTupleProj (base : Term) (idx arity : Nat) : TermElabM Term := do
   if arity <= 1 then
@@ -120,13 +128,33 @@ private def mkSerializableInstance (declName : Name) : CommandElabM Unit := do
         deserialize_serialize := by
           intro x
           cases x <;> simp [
+            serialize_constructor0,
+            serialize_constructor1,
+            serialize_constructor2,
+            serialize_constructor3,
+            serialize_constructor4,
+            serialize_constructor5,
+            serialize_constructor6,
+            deserialize_constructor0,
+            deserialize_constructor1,
+            deserialize_constructor2,
+            deserialize_constructor3,
+            deserialize_constructor4,
+            deserialize_constructor5,
+            deserialize_constructor6,
+            deserialize_constructor_payload,
+            deserialize_serialize,
             deserialize_constructor0_serialize_constructor0,
             deserialize_constructor1_serialize_constructor1,
             deserialize_constructor2_serialize_constructor2,
             deserialize_constructor3_serialize_constructor3,
             deserialize_constructor4_serialize_constructor4,
             deserialize_constructor5_serialize_constructor5,
-            deserialize_constructor6_serialize_constructor6
+            deserialize_constructor6_serialize_constructor6,
+            deserialize_constructor7_serialize_constructor7,
+            deserialize_constructor8_serialize_constructor8,
+            deserialize_constructor9_serialize_constructor9,
+            deserialize_constructor10_serialize_constructor10
           ])
   elabCommand cmd
 

@@ -4,7 +4,7 @@ namespace ConCert.Utils.StringExtra
 
 def strRev (s : String) : String := String.ofList s.toList.reverse
 
-/-- Coq-name compatibility alias. -/
+/-- Rocq source-name alias. -/
 abbrev str_rev (s : String) : String := strRev s
 
 def hexDigitOfNibble : Nat → Char
@@ -24,7 +24,7 @@ def hex_of_N (n : Nat) : String :=
 
 def hex_of_nat (n : Nat) : String := hex_of_N n
 
-/-- Coq-name compatibility alias. Lean represents `positive` as `Nat` on this surface. -/
+/-- Rocq source-name alias. Lean represents `positive` as `Nat` on this surface. -/
 def hex_of_positive (p : Nat) : String := hex_of_N p
 
 def hex_of_Z (z : Int) : String :=
@@ -64,7 +64,7 @@ def remove_char (orig : Char) (s : String) : String :=
 def starts_with (withStr : String) (s : String) : Bool :=
   s.startsWith withStr
 
-/-- Coq-name compatibility alias for the continuation helper. -/
+/-- Rocq source-name alias for the continuation helper. -/
 def starts_with_cont (withStr s : String) (k : String → Bool) : Bool :=
   if starts_with withStr s then k (String.ofList (s.toList.drop withStr.length)) else false
 
